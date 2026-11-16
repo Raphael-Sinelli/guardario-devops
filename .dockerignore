@@ -1,0 +1,12 @@
+# O build só precisa do código da API. Tudo o que não entra aqui não é enviado ao Docker:
+# o build fica mais rápido e nenhum segredo (.env) vai parar numa camada da imagem.
+*
+
+!api/.mvn/
+!api/mvnw
+!api/pom.xml
+!api/src/
+
+# Mesmo dentro de api/: saída de build local e testes não entram
+api/target/
+api/src/test/
