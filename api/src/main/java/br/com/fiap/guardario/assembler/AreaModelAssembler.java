@@ -1,0 +1,118 @@
+package br.com.fiap.guardario.assembler;
+
+import br.com.fiap.guardario.dto.AreaRequest;
+import org.springframework.http.HttpMethod;
+import br.com.fiap.guardario.controller.AbrigoController;
+import br.com.fiap.guardario.controller.AlertaController;
+import br.com.fiap.guardario.controller.AreaController;
+import br.com.fiap.guardario.controller.EstacaoController;
+import br.com.fiap.guardario.dto.AreaResponse;
+import br.com.fiap.guardario.service.AreaSeguidaService;
+import br.com.fiap.guardario.controller.AuthController;
+import br.com.fiap.guardario.dto.RankingAreaResponse;
+import br.com.fiap.guardario.model.Papel;
+import br.com.fiap.guardario.security.SecurityUtils;
+import br.com.fiap.guardario.service.AreaService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.web.PagedResourcesAssembler;
+import org.springframework.hateoas.CollectionModel;
+import org.springframework.hateoas.EntityModel;
+import org.springframework.hateoas.Link;
+import org.springframework.hateoas.PagedModel;
+import org.springframework.hateoas.server.RepresentationModelAssembler;
+import org.springframework.stereotype.Component;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
+
+@Component
+@RequiredArgsConstructor
+public class AreaModelAssembler implements RepresentationModelAssembler<AreaResponse, EntityModel<AreaResponse>> {
+
+    private final AreaService areaService;
+    private final AreaSeguidaService areaSeguidaService;
+
+    @Override
+    public EntityModel<AreaResponse> toModel(AreaResponse area) {
+        return toModel(area, excluiveis(List.of(area)), seguidas());
+    }
+
+    // a página inteira com uma consulta só para saber quais áreas podem ser excluídas: sem N+1
+    public PagedModel<EntityModel<AreaResponse>> toPagedModel(Page<AreaResponse> pagina,
+                                                             PagedResourcesAssembler<AreaResponse> paginador) {
+        Set<Long> excluiveis = excluiveis(pagina.getContent());
+        Optional<Set<Long>> seguidas = seguidas();
+        return RespostaHal.pagina(pagina, paginador, area -> toModel(area, excluiveis, seguidas), AreaResponse.class);
+    }
+
+    // lista sem paginação (as áreas seguidas, no máximo 20), com o mesmo formato e uma consulta só para o link excluir
+    public CollectionModel<EntityModel<AreaResponse>> toCollectionModel(List<AreaResponse> areas, Link self) {
+        Set<Long> excluiveis = excluiveis(areas);
+        // são as áreas que o usuário segue: todas têm o deixar-de-seguir, sem consultar de novo
+        Optional<Set<Long>> seguidas = Optional.of(areas.stream().map(AreaResponse::id).collect(Collectors.toSet()));
+        List<EntityModel<AreaResponse>> itens = areas.stream().map(area -> toModel(area, excluiveis, seguidas)).toList();
+        return RespostaHal.colecao(CollectionModel.of(itens, self), AreaResponse.class);
+    }
+
+    private EntityModel<AreaResponse> toModel(AreaResponse area, Set<Long> excluiveis, Optional<Set<Long>> seguidas) {
+        EntityModel<AreaResponse> model = EntityModel.of(area,
+                linkTo(methodOn(AreaController.class).buscarPorId(area.id())).withSelfRel(),
+                linkTo(methodOn(EstacaoController.class).listar(area.id(), null)).withRel("estacoes").expand(),
+                linkTo(methodOn(AbrigoController.class).listar(area.id(), null, null, true, null, null)).withRel("abrigos-com-vaga").expand(),
+                linkTo(methodOn(AlertaController.class).ativos(area.id())).withRel("alertas-ativos"),
+                linkTo(methodOn(AreaController.class).listar(null, null)).withRel("areas").expand());
+
+        // quem está logado segue ou deixa de seguir a área (N:M), conforme já segue ou não; a URL já vem com o id
+        seguidas.ifPresent(ids -> {
+            if (ids.contains(area.id())) {
+                Acoes.adicionar(model, linkTo(methodOn(AuthController.class).deixarDeSeguirArea(area.id())).withRel("deixar-de-seguir-area")
+                        .withTitle("DELETE: deixa de acompanhar esta área"), HttpMethod.DELETE, null);
+            } else {
+                Acoes.adicionar(model, linkTo(methodOn(AuthController.class).seguirArea(area.id())).withRel("seguir-area")
+                        .withTitle("PUT sem corpo: acompanha esta área, além da área do cadastro (até 20 áreas)"), HttpMethod.PUT, null);
+            }
+        });
+
+        // ações só aparecem para quem pode executá-las, e excluir só quando a área não tem vínculos (senão daria 409)
+        if (SecurityUtils.temPapel(Papel.ADMIN)) {
+            Acoes.adicionar(model, linkTo(methodOn(AreaController.class).atualizar(area.id(), null)).withRel("atualizar").withTitle("PUT com a área inteira"), HttpMethod.PUT, AreaRequest.class);
+            if (excluiveis.contains(area.id())) {
+                Acoes.adicionar(model, linkTo(methodOn(AreaController.class).excluir(area.id())).withRel("excluir").withTitle("DELETE"), HttpMethod.DELETE, null);
+            }
+        }
+        return model;
+    }
+
+    // sem login não há link de seguir; logado, uma consulta só traz os ids das áreas que ele segue
+    private Optional<Set<Long>> seguidas() {
+        return SecurityUtils.usuarioOpcional().map(usuario -> areaSeguidaService.idsSeguidos());
+    }
+
+    // só o ADMIN vê o link excluir; para os outros papéis, nem consulta o banco
+    private Set<Long> excluiveis(List<AreaResponse> areas) {
+        if (areas.isEmpty() || !SecurityUtils.temPapel(Papel.ADMIN)) {
+            return Set.of();
+        }
+        Set<Long> ids = areas.stream().map(AreaResponse::id).collect(Collectors.toCollection(HashSet::new));
+        ids.removeAll(areaService.idsComVinculos(ids));
+        return ids;
+    }
+
+    // ranking (JPQL): cada linha aponta para a área e para os abrigos com vaga dela
+    public CollectionModel<EntityModel<RankingAreaResponse>> toRankingModel(List<RankingAreaResponse> ranking) {
+        List<EntityModel<RankingAreaResponse>> linhas = ranking.stream()
+                .map(linha -> EntityModel.of(linha,
+                        linkTo(methodOn(AreaController.class).buscarPorId(linha.areaId())).withRel("area"),
+                        linkTo(methodOn(AbrigoController.class).listar(linha.areaId(), null, null, true, null, null)).withRel("abrigos-com-vaga").expand()))
+                .toList();
+        return RespostaHal.colecao(CollectionModel.of(linhas, linkTo(methodOn(AreaController.class).ranking()).withSelfRel()),
+                RankingAreaResponse.class);
+    }
+}

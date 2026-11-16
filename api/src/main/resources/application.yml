@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: guardario-api
+  profiles:
+    default: dev # sem perfil informado, sobe com H2 em memória e dados de teste
+  jpa:
+    open-in-view: false # o mapeamento para DTO acontece dentro da transação do service
+  jackson:
+    # o JSON precisa vir no tipo certo: o Jackson não converte valor de outro tipo em silêncio
+    deserialization:
+      accept-float-as-int: false # 1.7 num campo inteiro é erro, não vira 1
+    datatype:
+      enum:
+        fail-on-numbers-for-enums: true # "tipo": 0 é erro, não vira o primeiro valor do enum
+    mapper:
+      allow-coercion-of-scalars: false # "nivelCm": "100" e "aceitaPets": 1 são erro
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+  cache:
+    type: caffeine
+    cache-names: alertasAtivos, abrigosDisponiveis, areas
+    caffeine:
+      # quem limpa o cache é o @CacheEvict; os 10 minutos são só uma rede de segurança.
+      # recordStats liga as métricas de hit e miss em /actuator/metrics/cache.gets
+      spec: maximumSize=500,expireAfterWrite=10m,recordStats
+
+server:
+  port: ${PORT:8080}
+
+logging:
+  level:
+    # o Hibernate registra em WARN toda violação de restrição do banco (o email repetido de dois cadastros simultâneos,
+    # por exemplo), e a API já converte essa violação em 409. Um erro de banco inesperado continua no log: ele vira 500,
+    # e o GlobalExceptionHandler registra em ERROR com o stack trace
+    org.hibernate.orm.jdbc.error: ERROR
+
+app:
+  jwt:
+    # nunca versionar a chave: vem da variável de ambiente JWT_SECRET (mínimo de 32 caracteres)
+    secret: ${JWT_SECRET:}
+    expiration-seconds: 3600
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:*,http://127.0.0.1:*,http://10.0.2.2:*}
+  seed:
+    enabled: ${SEED_ENABLED:true}
+  # primeiro ADMIN do perfil prod, criado pelo AdminInitializer; sem as duas variáveis, nada é criado
+  admin:
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, caches
+  endpoint:
+    health:
+      # o detalhe (banco, disco com o caminho da pasta) só para o ADMIN; o público vê só o status
+      show-details: when-authorized
+      roles: ADMIN
+  info:
+    env:
+      enabled: true # nome, descrição e versão da seção info abaixo; Java e sistema operacional ficam de fora
+
+info:
+  app:
+    name: GuardaRio API
+    description: Alerta comunitário de enchentes (Global Solution 2026/2, FIAP)
+    version: '@project.version@'
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: method

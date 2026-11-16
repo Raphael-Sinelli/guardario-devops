@@ -1,0 +1,157 @@
+package br.com.fiap.guardario.service;
+
+import br.com.fiap.guardario.dto.AreaRequest;
+import br.com.fiap.guardario.dto.AreaResponse;
+import br.com.fiap.guardario.dto.RankingAreaResponse;
+import br.com.fiap.guardario.exceptions.RegraNegocioException;
+import br.com.fiap.guardario.exceptions.ResourceNotFoundException;
+import br.com.fiap.guardario.mapper.AreaMapper;
+import br.com.fiap.guardario.model.AreaRisco;
+import br.com.fiap.guardario.model.NivelRisco;
+import br.com.fiap.guardario.model.StatusRelato;
+import br.com.fiap.guardario.repository.*;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+import java.util.Locale;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AreaServiceImpl implements AreaService {
+
+    private static final List<StatusRelato> RELATOS_EM_ABERTO = List.of(StatusRelato.ABERTO, StatusRelato.EM_ATENDIMENTO);
+
+    private final AreaRiscoRepository areaRepository;
+    private final EstacaoRepository estacaoRepository;
+    private final AbrigoRepository abrigoRepository;
+    private final AlertaRepository alertaRepository;
+    private final RelatoRepository relatoRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final RelatoService relatoService;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AreaResponse> listar(String uf, Pageable pageable) {
+        Page<AreaRisco> pagina = (uf == null || uf.isBlank())
+                ? areaRepository.findAll(pageable)
+                : areaRepository.findByUfIgnoreCase(uf.trim(), pageable);
+        return pagina.map(AreaMapper::toResponse);
+    }
+
+    // o app abre a tela da área o tempo todo para ver o nível; ele só muda quando chega leitura que altera o risco
+    @Override
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "areas", key = "#id")
+    public AreaResponse buscarPorId(Long id) {
+        log.info("Cache 'areas' sem a área {}: consultando o banco", id);
+        return AreaMapper.toResponse(buscarEntidade(id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RankingAreaResponse> ranking() {
+        return areaRepository.rankingPorRelatosEmAberto(RELATOS_EM_ABERTO);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Set<Long> idsComVinculos(Collection<Long> ids) {
+        return ids.isEmpty() ? Set.of() : areaRepository.buscarIdsComVinculos(ids);
+    }
+
+    @Override
+    @Transactional
+    public AreaResponse criar(AreaRequest request) {
+        AreaRisco area = new AreaRisco();
+        preencher(area, request);
+        return AreaMapper.toResponse(areaRepository.save(area));
+    }
+
+    // os alertas ativos em cache guardam o nome da área: renomear a área também invalida esse cache
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = "areas", key = "#id"),
+            @CacheEvict(cacheNames = "alertasAtivos", allEntries = true)
+    })
+    public AreaResponse atualizar(Long id, AreaRequest request) {
+        AreaRisco area = buscarEntidade(id);
+        preencher(area, request); // nivelAtual não muda aqui: só as leituras mudam o risco
+        return AreaMapper.toResponse(area);
+    }
+
+    // sem cascade na área: apagar uma área com histórico apagaria estações, alertas e relatos junto. A lista de alertas
+    // ativos da área também fica em cache, com o id dela, e sai junto: sem a área, a lista dá 404
+    @Override
+    @Transactional
+    @Caching(evict = {
+            @CacheEvict(cacheNames = "areas", key = "#id"),
+            @CacheEvict(cacheNames = "alertasAtivos", key = "#id")
+    })
+    public void excluir(Long id) {
+        // trava a área antes de ler quem a segue: um seguir que chegasse no meio faria a FK da tabela de junção barrar a
+        // exclusão; com a trava, ele espera e recebe 404 depois
+        AreaRisco area = areaRepository.buscarComTrava(id)
+                .orElseThrow(() -> new ResourceNotFoundException("área", id));
+        boolean temVinculos = estacaoRepository.existsByAreaId(id)
+                || abrigoRepository.existsByAreaId(id)
+                || alertaRepository.existsByAreaId(id)
+                || relatoRepository.existsByAreaId(id)
+                || usuarioRepository.existsByAreaId(id);
+        if (temVinculos) {
+            throw new RegraNegocioException("A área tem estações, abrigos, alertas, relatos ou moradores vinculados e não pode ser excluída");
+        }
+        // seguir não é vínculo: quem seguia a área deixa de seguir, e as linhas da tabela de junção saem antes da área
+        usuarioRepository.buscarSeguidoresDaArea(id).forEach(seguidor -> seguidor.deixarDeSeguir(area));
+        areaRepository.delete(area);
+    }
+
+    private AreaRisco buscarEntidade(Long id) {
+        return areaRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("área", id));
+    }
+
+    private void preencher(AreaRisco area, AreaRequest request) {
+        area.setNome(request.nome().trim());
+        area.setCidade(request.cidade().trim());
+        area.setUf(request.uf().toUpperCase(Locale.ROOT));
+        area.setPopulacaoEstimada(request.populacaoEstimada());
+        area.setLatitude(request.latitude());
+        area.setLongitude(request.longitude());
+    }
+
+    /*
+     * O nível gravado em nivelAtual só é recalculado quando chega leitura ou a estação muda: a estação que
+     * simplesmente para não dispara nada. Chamado a cada minuto pelo ReavaliacaoDasAreas. O cache "areas"
+     * só é limpo se alguma área mudou de nível.
+     */
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "areas", allEntries = true, condition = "#result")
+    public boolean reavaliarNiveis() {
+        boolean algumaMudou = false;
+        for (Long id : areaRepository.buscarIdsComNivelDiferenteDe(NivelRisco.NORMAL)) {
+            AreaRisco area = areaRepository.buscarComTrava(id).orElse(null);
+            if (area == null) {
+                continue; // excluída entre a busca dos ids e a trava
+            }
+            NivelRisco anterior = area.getNivelAtual();
+            if (area.recalcularNivel() != anterior) {
+                relatoService.reavaliarPrioridades(area); // RN06: a prioridade dos relatos em aberto acompanha o nível
+                algumaMudou = true;
+            }
+        }
+        return algumaMudou;
+    }
+}

@@ -1,0 +1,232 @@
+package br.com.fiap.guardario.service;
+
+import br.com.fiap.guardario.exceptions.CampoInvalidoException;
+import br.com.fiap.guardario.dto.AlertaEdicaoRequest;
+import br.com.fiap.guardario.dto.AlertaRequest;
+import br.com.fiap.guardario.dto.AlertaResponse;
+import br.com.fiap.guardario.exceptions.RegraNegocioException;
+import br.com.fiap.guardario.exceptions.ResourceNotFoundException;
+import br.com.fiap.guardario.mapper.AlertaMapper;
+import br.com.fiap.guardario.model.*;
+import br.com.fiap.guardario.repository.AlertaRepository;
+import br.com.fiap.guardario.repository.AreaRiscoRepository;
+import br.com.fiap.guardario.repository.EstacaoRepository;
+import br.com.fiap.guardario.repository.UsuarioRepository;
+import br.com.fiap.guardario.security.SecurityUtils;
+import io.micrometer.core.instrument.MeterRegistry;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AlertaServiceImpl implements AlertaService {
+
+    private final AlertaRepository alertaRepository;
+    private final AreaRiscoRepository areaRepository;
+    private final EstacaoRepository estacaoRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final MeterRegistry meterRegistry;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AlertaResponse> listar(StatusAlerta status, Pageable pageable) {
+        Page<Alerta> pagina = status == null
+                ? alertaRepository.findAll(pageable)
+                : alertaRepository.findByStatus(status, pageable);
+        return pagina.map(AlertaMapper::toResponse);
+    }
+
+    /*
+     * Consulta mais chamada da API: o app pergunta os alertas ativos toda vez que abre.
+     * Fica em cache e só é limpa quando um alerta nasce, muda ou é encerrado.
+     * Ordem: mais grave primeiro, depois o mais recente. Ela vem pronta do banco (ORDER BY CASE no repositório).
+     */
+    @Override
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "alertasAtivos")
+    public List<AlertaResponse> ativos() {
+        log.info("Cache 'alertasAtivos' vazio: consultando o banco");
+        return alertaRepository.buscarPorGravidade(StatusAlerta.ATIVO).stream()
+                .map(AlertaMapper::toResponse)
+                .toList();
+    }
+
+    /*
+     * Alertas ativos de uma área: é para onde leva o link alertas-ativos de cada área. Fica no mesmo cache da lista de
+     * todas, com o id da área como chave. Toda escrita que limpa esse cache limpa todas as chaves (allEntries), e a
+     * exclusão da área limpa a chave dela. Área que não existe dá 404, e o 404 não entra no cache.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "alertasAtivos", key = "#areaId")
+    public List<AlertaResponse> ativosDaArea(Long areaId) {
+        if (!areaRepository.existsById(areaId)) {
+            throw new ResourceNotFoundException("área", areaId);
+        }
+        log.info("Cache 'alertasAtivos' sem a área {}: consultando o banco", areaId);
+        return alertaRepository.buscarDaAreaPorGravidade(areaId, StatusAlerta.ATIVO).stream()
+                .map(AlertaMapper::toResponse)
+                .toList();
+    }
+
+    /*
+     * Alertas ativos da área onde o usuário logado mora. Sem cache: a resposta muda de usuário para usuário.
+     * Transação de leitura porque o mapper lê o nome da área, e o open-in-view está desligado.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<AlertaResponse> ativosDaMinhaArea() {
+        Usuario usuario = SecurityUtils.usuarioLogado();
+        if (usuario.getArea() == null) {
+            return List.of();
+        }
+        // ler o id da área não dispara SELECT: o proxy LAZY já guarda o id
+        return alertaRepository.buscarDaAreaPorGravidade(usuario.getArea().getId(), StatusAlerta.ATIVO).stream()
+                .map(AlertaMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AlertaResponse buscarPorId(Long id) {
+        return AlertaMapper.toResponse(buscarEntidade(id));
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "alertasAtivos", allEntries = true)
+    public AlertaResponse criarManual(AlertaRequest request) {
+        // a mesma trava das leituras: alerta manual e automático da mesma área não se cruzam (RN02)
+        AreaRisco area = areaRepository.buscarComTrava(request.areaId())
+                .orElseThrow(() -> new ResourceNotFoundException("área", request.areaId()));
+
+        Estacao estacao = null;
+        if (request.estacaoId() != null) {
+            estacao = estacaoRepository.findById(request.estacaoId())
+                    .orElseThrow(() -> new ResourceNotFoundException("estação", request.estacaoId()));
+            if (!estacao.getArea().getId().equals(area.getId())) {
+                throw new CampoInvalidoException("estacaoId", "a estação informada não pertence à área do alerta");
+            }
+        }
+
+        List<Alerta> ativosDaArea = alertaRepository.findByAreaIdAndStatus(area.getId(), StatusAlerta.ATIVO);
+        if (existeAtivoIgualOuMaior(ativosDaArea, request.nivel())) {
+            throw new RegraNegocioException("A área já tem um alerta ativo de nível igual ou maior");
+        }
+        substituirMenores(ativosDaArea);
+
+        Usuario emissor = usuarioRepository.getReferenceById(SecurityUtils.usuarioLogado().getId());
+        Alerta alerta = novoAlerta(area, estacao, request.nivel(), OrigemAlerta.MANUAL,
+                request.titulo().trim(), request.mensagem().trim());
+        alerta.setEmitidoPor(emissor);
+        return AlertaMapper.toResponse(salvarEContar(alerta));
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "alertasAtivos", allEntries = true)
+    public AlertaResponse editar(Long id, AlertaEdicaoRequest request) {
+        Alerta alerta = buscarEntidade(id);
+        if (!alerta.isAtivo()) {
+            throw new RegraNegocioException("Alerta encerrado não pode ser editado");
+        }
+        alerta.setTitulo(request.titulo().trim());
+        alerta.setMensagem(request.mensagem().trim());
+        return AlertaMapper.toResponse(alerta);
+    }
+
+    // RN04: o encerramento é sempre decisão humana (AGENTE ou ADMIN, conferido no controller)
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "alertasAtivos", allEntries = true)
+    public AlertaResponse encerrar(Long id) {
+        Alerta alerta = buscarEntidade(id);
+        Usuario responsavel = usuarioRepository.getReferenceById(SecurityUtils.usuarioLogado().getId());
+        alerta.encerrar(responsavel);
+        return AlertaMapper.toResponse(alerta);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "alertasAtivos", allEntries = true)
+    public void excluir(Long id) {
+        Alerta alerta = buscarEntidade(id);
+        // o alerta é histórico. O automático registra uma leitura real da estação e nunca sai (é ele que impede apagar
+        // a estação com o histórico de leituras); o manual emitido por engano sai, mas só depois de encerrado, para
+        // nenhum aviso ativo sumir sem o registro de quem o encerrou
+        if (alerta.getOrigem() == OrigemAlerta.AUTOMATICO) {
+            throw new RegraNegocioException("Alerta automático faz parte do histórico da estação e não pode ser excluído; "
+                    + "para tirá-lo dos ativos, encerre o alerta");
+        }
+        if (alerta.getStatus() == StatusAlerta.ATIVO) {
+            throw new RegraNegocioException("Encerre o alerta antes de excluir: um alerta ativo não some sem o registro do encerramento");
+        }
+        alertaRepository.delete(alerta);
+    }
+
+    // RN02: só abre alerta se não houver um ativo de nível igual ou maior; os de nível menor são substituídos.
+    // Roda dentro da transação do registro da leitura, que já travou a área: a verificação e a inserção não se cruzam.
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "alertasAtivos", allEntries = true, condition = "#result != null")
+    public Long gerarAutomatico(Estacao estacao, NivelRisco risco, Integer nivelCm) {
+        AreaRisco area = estacao.getArea();
+        List<Alerta> ativosDaArea = alertaRepository.findByAreaIdAndStatus(area.getId(), StatusAlerta.ATIVO);
+        if (existeAtivoIgualOuMaior(ativosDaArea, risco)) {
+            return null;
+        }
+        substituirMenores(ativosDaArea);
+
+        String titulo = risco + " em " + area.getNome() + ": " + estacao.getRio() + " com " + nivelCm + " cm";
+        String mensagem = "A estação " + estacao.getCodigo() + " (" + estacao.getNome() + ") mediu " + nivelCm
+                + " cm. Cota de alerta: " + estacao.getCotaAlertaCm() + " cm; cota de transbordo: "
+                + estacao.getCotaTransbordoCm() + " cm. " + risco.getOrientacao();
+
+        Alerta alerta = novoAlerta(area, estacao, risco, OrigemAlerta.AUTOMATICO, titulo, mensagem);
+        return salvarEContar(alerta).getId();
+    }
+
+    private boolean existeAtivoIgualOuMaior(List<Alerta> ativos, NivelRisco nivel) {
+        return ativos.stream().anyMatch(a -> a.getNivel().maiorOuIgualA(nivel));
+    }
+
+    // alerta substituído por um mais grave é encerrado sem responsável humano
+    private void substituirMenores(List<Alerta> ativosDaArea) {
+        ativosDaArea.forEach(a -> a.encerrar(null));
+    }
+
+    private Alerta novoAlerta(AreaRisco area, Estacao estacao, NivelRisco nivel, OrigemAlerta origem,
+                              String titulo, String mensagem) {
+        Alerta alerta = new Alerta();
+        alerta.setArea(area);
+        alerta.setEstacao(estacao);
+        alerta.setNivel(nivel);
+        alerta.setOrigem(origem);
+        alerta.setTitulo(titulo.length() > 150 ? titulo.substring(0, 150) : titulo);
+        alerta.setMensagem(mensagem);
+        return alerta;
+    }
+
+    // métrica própria, visível em /actuator/metrics/guardario.alertas.emitidos
+    private Alerta salvarEContar(Alerta alerta) {
+        Alerta salvo = alertaRepository.save(alerta);
+        meterRegistry.counter("guardario.alertas.emitidos",
+                "origem", alerta.getOrigem().name(),
+                "nivel", alerta.getNivel().name()).increment();
+        return salvo;
+    }
+
+    private Alerta buscarEntidade(Long id) {
+        return alertaRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("alerta", id));
+    }
+}

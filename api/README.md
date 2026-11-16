@@ -1,0 +1,591 @@
+# GuardaRio API
+
+API REST do GuardaRio, um sistema de alerta comunitário de enchentes. Estações IoT medem o nível do rio e a chuva, a API classifica o risco, abre alertas automáticos para o bairro, mostra os abrigos com vaga e recebe relatos dos moradores com prioridade calculada para a Defesa Civil.
+
+Global Solution 2026/2 (tema CitizenTech), disciplina Java Advanced, FIAP. Esta é a API consumida pelo app Flutter da disciplina de Mobile.
+
+## Sumário
+
+- [Integrantes](#integrantes)
+- [Vídeo pitch](#vídeo-pitch)
+- [O problema](#o-problema)
+- [Como rodar](#como-rodar)
+  - [Variáveis de ambiente](#variáveis-de-ambiente)
+- [Usuários de teste por papel](#usuários-de-teste-por-papel)
+  - [Testando pelo Swagger](#testando-pelo-swagger)
+  - [Testando com o Postman (ou o Bruno)](#testando-com-o-postman-ou-o-bruno)
+- [Regras de negócio](#regras-de-negócio)
+- [Diagrama das entidades](#diagrama-das-entidades)
+- [Modelagem: relacionamentos, cascade e fetch](#modelagem-relacionamentos-cascade-e-fetch)
+- [Consultas: por que cada tipo](#consultas-por-que-cada-tipo)
+- [Cache](#cache)
+- [HATEOAS](#hateoas)
+- [Actuator](#actuator)
+- [Segurança](#segurança)
+- [Validação e tratamento de erros](#validação-e-tratamento-de-erros)
+- [Endpoints](#endpoints)
+- [Integração com o app Mobile](#integração-com-o-app-mobile)
+- [Testes](#testes)
+- [Estrutura do projeto](#estrutura-do-projeto)
+- [Uso de IA generativa](#uso-de-ia-generativa)
+- [Referências](#referências)
+
+## Integrantes
+
+| Nome | RM |
+|---|---|
+| Henrique Spoltore Moreno Pavão dos Santos | RM568130 |
+| Raphael Oliveira Sinelli Mendonça | RM568346 |
+| Arthur Lins Belarmino | RM566845 |
+
+## Vídeo pitch
+
+Link: **PITCH_PENDENTE: o link do vídeo no YouTube entra aqui antes da entrega**
+
+## O problema
+
+Nas enchentes de 2024 no Rio Grande do Sul, 478 dos 497 municípios foram atingidos e mais de 2,39 milhões de pessoas foram afetadas (boletins da Defesa Civil do RS). Segundo o IBGE e o Cemaden, 8,27 milhões de brasileiros moram em áreas de risco de enchente e deslizamento.
+
+O alerta oficial cobre a cidade ou a bacia inteira. Quem mora na rua mais baixa não sabe se a água vai chegar na casa dele, nem quando. Na hora da cheia ninguém sabe qual abrigo ainda tem vaga ou aceita animais, e os pedidos de socorro chegam por grupos de WhatsApp, sem ordem de prioridade.
+
+O GuardaRio mede o rio no ponto que afeta cada bairro e transforma a medição em aviso, em informação de abrigo e em fila de atendimento. Atende os ODS 11 (meta 11.5, reduzir pessoas afetadas por desastres), 13 (meta 13.3, alerta precoce), 3 e 10.
+
+## Como rodar
+
+Requisito: **JDK 17 ou mais novo** (testado com o 17 e o 21). Não precisa instalar Maven, porque o projeto traz o Maven Wrapper, nem banco de dados, porque o perfil padrão usa H2 em memória.
+
+```bash
+git clone https://github.com/Raphael-Sinelli/guardario-api.git
+cd guardario-api
+
+./mvnw spring-boot:run        # Linux, macOS ou Git Bash
+.\mvnw.cmd spring-boot:run    # Windows (PowerShell ou CMD)
+```
+
+A API sobe em `http://localhost:8080` já com dados de demonstração (4 áreas, 4 estações com histórico de leituras, 5 abrigos, 5 relatos e 1 alerta automático ativo em Sarandi).
+
+| O quê | Endereço |
+|---|---|
+| Swagger UI | http://localhost:8080/swagger-ui.html |
+| OpenAPI (JSON) | http://localhost:8080/v3/api-docs |
+| OpenAPI (YAML) | http://localhost:8080/v3/api-docs.yaml |
+| Health | http://localhost:8080/actuator/health |
+| Console do H2 | http://localhost:8080/h2-console (JDBC URL `jdbc:h2:mem:guardario`, usuário `sa`, senha em branco) |
+
+Se o wrapper reclamar da versão do Java, confira se `java -version` e a variável `JAVA_HOME` apontam para um JDK 17 ou mais novo. No Linux ou macOS, se aparecer `Permission denied`, rode `chmod +x mvnw` uma vez.
+
+Outros comandos:
+
+```bash
+./mvnw test                                   # roda os 313 testes
+./mvnw clean package                          # gera target/guardario-api-1.0.0.jar
+java -jar target/guardario-api-1.0.0.jar      # roda o jar gerado
+```
+
+### Variáveis de ambiente
+
+Nenhuma é obrigatória no perfil `dev`. O arquivo `.env.example` lista todas; o `.env` real fica fora do Git.
+
+| Variável | Para que serve | Padrão |
+|---|---|---|
+| `JWT_SECRET` | Chave HS256 do JWT, com 32 caracteres ou mais. Obrigatória no perfil `prod`: sem ela, a aplicação não sobe | sem valor: o perfil dev gera uma chave temporária a cada subida e registra isso como INFO |
+| `CORS_ALLOWED_ORIGINS` | Origens liberadas para o app | `http://localhost:*`, `http://127.0.0.1:*`, `http://10.0.2.2:*` |
+| `SPRING_PROFILES_ACTIVE` | `dev` (H2) ou `prod` (PostgreSQL) | `dev` |
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | Banco do perfil `prod` | `DB_PASSWORD` não tem padrão |
+| `SEED_ENABLED` | Carga de dados de demonstração | `true` no dev, `false` no prod |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Primeiro ADMIN do perfil `prod`, criado na subida pelo `AdminInitializer` se o email ainda não existir (senha com pelo menos 8 caracteres e no máximo 72 bytes) | sem valor: nenhum ADMIN é criado |
+| `SWAGGER_ENABLED` | Liga o Swagger UI e o `/v3/api-docs` no perfil `prod` | `false` no prod (no dev o Swagger está sempre ligado) |
+| `PORT` | Porta HTTP | `8080` |
+
+## Usuários de teste por papel
+
+Criados pela carga de demonstração do perfil `dev`. No perfil `prod` eles não existem: o primeiro ADMIN vem de `ADMIN_EMAIL` e `ADMIN_PASSWORD`, e é ele quem promove os agentes.
+
+| Papel | Email | Senha | O que pode fazer |
+|---|---|---|---|
+| ADMIN | admin@guardario.com | Admin@123 | Tudo: cadastrar áreas e estações, excluir registros, promover usuários a AGENTE, ver métricas |
+| AGENTE | agente@guardario.com | Agente@123 | Registrar leituras, emitir, editar e encerrar alertas, gerenciar abrigos, atender relatos |
+| CIDADAO | cidadao@guardario.com | Cidadao@123 | Enviar, editar e excluir os próprios relatos |
+| CIDADAO | maria@guardario.com | Maria@123 | Segunda moradora, para testar que um cidadão não vê o relato do outro |
+
+Sem login dá para consultar áreas, estações, leituras, alertas e abrigos. Informação de segurança não pode depender de conta.
+
+### Testando pelo Swagger
+
+1. Em `POST /api/auth/login`, faça login com um dos usuários acima.
+2. Copie o `token` da resposta, clique em **Authorize** e cole só o token, sem a palavra `Bearer`.
+3. Roteiro que passa pelo fluxo principal:
+   1. Logado como agente, `POST /api/estacoes/1/leituras` com `{"nivelCm": 310, "chuvaMmH": 20}`. A estação GR-SP-001 tem cota de transbordo de 300 cm, então a resposta vem com `nivelRisco: EMERGENCIA` e um `alertaGeradoId`.
+   2. `GET /api/alertas/ativos`: o alerta de emergência do Jardim Pantanal aparece em primeiro.
+   3. `GET /api/abrigos?areaId=1&aceitaPets=true&comVagas=true`: abrigos do bairro que aceitam animais e têm vaga.
+   4. Logado como cidadão, `POST /api/relatos` com `{"tipo": "BUEIRO_ENTUPIDO", "descricao": "Bueiro entupido na Rua Capachós", "areaId": 1}`. A prioridade vem 3: base 2 do tipo, mais 1 porque a área está em emergência.
+   5. Logado como agente, `GET /api/relatos` lista o painel com a maior prioridade primeiro. `PATCH /api/relatos/{id}/status` com `{"status": "EM_ATENDIMENTO"}` muda o status, e os links da resposta trocam `atender` por `resolver`.
+
+### Testando com o Postman (ou o Bruno)
+
+A pasta `postman/` tem a coleção `GuardaRio.postman_collection.json`, com 133 requisições em 10 pastas e 219 asserções automáticas (status esperado e regras de negócio); rodada com o Newman contra a API recém-iniciada, dá 0 falhas. Ela também pode rodar de novo na mesma API, sem reiniciar: no fim do bloco de autenticação a Maria volta para a senha de antes, e o roteiro de demonstração confere a mudança de nível a partir do nível que encontrou (depois de uma hora sem leitura, o agendamento leva a área para NORMAL). O Bruno importa o mesmo arquivo.
+
+1. Suba a API e importe o arquivo no Postman.
+2. Rode a pasta **01 Autenticação**: os logins guardam os tokens nas variáveis da coleção, e as outras requisições já usam o token certo para cada papel.
+3. Rode a pasta **02 Fluxo principal**, que é o roteiro da demonstração, ou a coleção inteira pelo Runner.
+
+A coleção conta com os dados de uma API recém-iniciada. Para rodar tudo de novo do zero, reinicie a API. Ela troca a senha da Maria (pasta 01 Autenticação), confere que o token antigo dela deixa de valer e faz login de novo com a senha nova; depois de rodá-la, a senha `Maria@123` da tabela de usuários só volta a valer com a API reiniciada.
+
+## Regras de negócio
+
+| ID | Regra | Onde está no código |
+|---|---|---|
+| RN01 | O risco da leitura segue a régua da estação (cotas de atenção, alerta e transbordo) e sobe um nível com chuva de 50 mm/h ou mais | `Estacao.classificar`, `NivelRisco.elevar` |
+| RN02 | Leitura em ALERTA ou pior abre alerta automático para a área, se ela ainda não tiver alerta ativo de nível igual ou maior. Alertas ativos de nível menor são substituídos | `AlertaServiceImpl.gerarAutomatico` |
+| RN03 | O nível da área é o maior risco entre as últimas leituras da última hora das estações ATIVAS: a estação que parou de mandar leitura conta como sem leitura e não segura o risco antigo. É recalculado a cada leitura, quando uma estação muda de área, muda de status ou é excluída, e reavaliado a cada minuto para as áreas fora de NORMAL (a estação que simplesmente para não dispara nada) | `AreaRisco.recalcularNivel`, `EstacaoServiceImpl.atualizar` e `excluir`, `AreaServiceImpl.reavaliarNiveis` (agendado pelo `ReavaliacaoDasAreas`) |
+| RN04 | Só AGENTE ou ADMIN encerra alerta, e alerta encerrado não reabre (409) | `@PreAuthorize` no `AlertaController`, `Alerta.encerrar` |
+| RN05 | A ocupação do abrigo nunca passa da capacidade. Cheio vira LOTADO, com vaga volta a ABERTO, FECHADO não recebe ninguém e aparece com 0 vaga | `Abrigo.registrarEntrada`, `registrarSaida`, `atualizarStatus`; `@OcupacaoDentroDaCapacidade` |
+| RN06 | Prioridade do relato de 1 a 5: base do tipo (pessoa ilhada 5, deslizamento 4, rio subindo e alagamento 3, bueiro 2, outro 1), mais 1 se a área estiver em ALERTA ou EMERGENCIA. Quando o nível da área muda, os relatos ABERTO ou EM_ATENDIMENTO dela são recalculados na mesma transação, e o painel já mostra a ordem nova; o relato encerrado fica como estava | `TipoRelato`, `Relato.definirPrioridade`, `RelatoServiceImpl.reavaliarPrioridades` |
+| RN07 | Status do relato: ABERTO vai para EM_ATENDIMENTO ou DESCARTADO; EM_ATENDIMENTO vai para RESOLVIDO. Transição inválida dá 409 | `StatusRelato.podeMudarPara`, `Relato.alterarStatus` |
+| RN08 | O cadastro público sempre cria CIDADAO; só o ADMIN promove alguém | `AuthServiceImpl.registrar`, `UsuarioController` |
+| RN09 | O cidadão vê e edita só os próprios relatos, e só exclui enquanto estão ABERTO | `RelatoServiceImpl` |
+| RN10 | As cotas da estação precisam ser crescentes: atenção < alerta < transbordo | `@CotasCrescentes` |
+
+Outras regras:
+
+- estação em MANUTENCAO ou INATIVA não recebe leitura (409);
+- a leitura repetida, com o mesmo `medidaEm` e as mesmas medidas de uma que a estação já tem, é recusada com 409 e não é gravada, porque a ponte MQTT usa QoS 1 (entrega "pelo menos uma vez") e pode reenviar a mesma mensagem depois de uma queda de conexão (leitura sem `medidaEm` usa o horário do servidor e é sempre nova; duas leituras diferentes no mesmo instante continuam valendo);
+- no lote (`POST /api/estacoes/{id}/leituras/lote`), que é tudo ou nada, o 409 da repetida diz o índice do item, como `leituras[2]`, e o `medidaEm`, e vale também para o item que repete outro do próprio lote;
+- leitura atrasada (mais antiga que a última da estação) ou medida há mais de 1 hora entra no histórico, mas não muda o nível atual nem gera alerta, porque o alerta precisa descrever o rio de agora;
+- `medidaEm` precisa estar entre 30 dias atrás e agora, sem data no futuro, na leitura avulsa e em cada item do lote (`@JanelaDeMedicao`): data no futuro dá 400 antes da conferência de leitura repetida;
+- abrigo com gente dentro não pode ser excluído (409: primeiro registra a saída das pessoas);
+- estação com alerta no histórico não pode ser excluída, só desativada, e o alerta automático também não sai (só o manual emitido por engano, depois de encerrado), para ninguém apagar o histórico apagando primeiro o alerta;
+- área com estações, abrigos, alertas, relatos ou moradores não pode ser excluída;
+- o ADMIN não pode alterar o próprio papel;
+- no PUT, abrigo sem `ocupacao` mantém as pessoas que já estão lá (e a capacidade não pode ficar abaixo delas, 409) e estação sem `status` mantém o status atual;
+- mudar as cotas da estação reclassifica a última leitura com a régua nova na hora, o nível da área acompanha e, se o risco subir para ALERTA ou pior, nasce o alerta automático (RN02);
+- estação reativada depois de mais de 1 hora parada volta sem risco conhecido até a próxima leitura, para não devolver à área um risco velho;
+- cada pessoa segue no máximo 20 áreas, e a área do cadastro pode estar entre elas (a 21ª dá 400 no campo `areasSeguidas`); seguir e deixar de seguir são idempotentes (204 mesmo sem mudança), e excluir uma área tira ela da lista de quem seguia.
+
+## Diagrama das entidades
+
+```mermaid
+erDiagram
+    AreaRisco ||--o{ Estacao : "tem"
+    AreaRisco ||--o{ Abrigo : "tem"
+    AreaRisco ||--o{ Alerta : "recebe"
+    AreaRisco ||--o{ Relato : "recebe"
+    AreaRisco |o--o{ Usuario : "moradores"
+    Estacao ||--o{ Leitura : "mede"
+    Estacao |o--o{ Alerta : "origina"
+    Usuario ||--o{ Relato : "escreve"
+    Usuario |o--o{ Alerta : "emite ou encerra"
+    Usuario ||--o{ usuario_area_seguida : "segue"
+    AreaRisco ||--o{ usuario_area_seguida : "é seguida"
+
+    Usuario {
+        bigint id PK
+        bigint versao "bloqueio otimista"
+        int versao_token "sobe na troca de senha"
+        varchar nome
+        varchar email UK
+        varchar senha "hash BCrypt"
+        varchar papel "CIDADAO, AGENTE ou ADMIN"
+        varchar telefone
+        bigint area_id FK "opcional"
+        timestamp criado_em
+    }
+    usuario_area_seguida {
+        bigint usuario_id PK, FK
+        bigint area_id PK, FK
+    }
+    AreaRisco {
+        bigint id PK
+        bigint versao "bloqueio otimista"
+        varchar nome
+        varchar cidade
+        varchar uf
+        int populacao_estimada
+        double latitude
+        double longitude
+        varchar nivel_atual "calculado pelas leituras"
+    }
+    Estacao {
+        bigint id PK
+        bigint versao "bloqueio otimista"
+        varchar codigo UK
+        varchar nome
+        varchar rio
+        int cota_atencao_cm
+        int cota_alerta_cm
+        int cota_transbordo_cm
+        varchar status "ATIVA, MANUTENCAO ou INATIVA"
+        bigint area_id FK
+        int ultimo_nivel_cm
+        varchar ultimo_risco
+        timestamp ultima_leitura_em
+    }
+    Leitura {
+        bigint id PK
+        int nivel_cm
+        double chuva_mm_h
+        double temperatura_c
+        double umidade_pct
+        varchar nivel_risco "calculado"
+        timestamp medida_em "UTC"
+        bigint estacao_id FK
+    }
+    Alerta {
+        bigint id PK
+        bigint versao "bloqueio otimista"
+        varchar nivel
+        varchar titulo
+        varchar mensagem
+        varchar status "ATIVO ou ENCERRADO"
+        varchar origem "AUTOMATICO ou MANUAL"
+        timestamp emitido_em
+        timestamp encerrado_em
+        bigint area_id FK
+        bigint estacao_id FK "opcional"
+        bigint emitido_por_id FK "opcional"
+        bigint encerrado_por_id FK "opcional"
+    }
+    Abrigo {
+        bigint id PK
+        bigint versao "bloqueio otimista"
+        varchar nome
+        varchar endereco
+        int capacidade
+        int ocupacao
+        boolean aceita_pets
+        boolean acessivel_pcd
+        varchar telefone
+        double latitude
+        double longitude
+        varchar status "ABERTO, LOTADO ou FECHADO"
+        bigint area_id FK
+    }
+    Relato {
+        bigint id PK
+        bigint versao "bloqueio otimista"
+        varchar tipo
+        varchar descricao
+        double latitude
+        double longitude
+        int prioridade "1 a 5"
+        varchar status
+        varchar observacao_agente
+        bigint autor_id FK
+        bigint area_id FK
+        timestamp criado_em
+        timestamp atualizado_em
+    }
+```
+
+## Modelagem: relacionamentos, cascade e fetch
+
+| Relação | Lado dono (FK) | cascade | orphanRemoval | Motivo |
+|---|---|---|---|---|
+| Estacao 1:N Leitura (bidirecional) | `leitura.estacao_id` | ALL | true | Leitura não existe sem a estação. Excluir a estação apaga o histórico junto |
+| AreaRisco 1:N Estacao (bidirecional) | `estacao.area_id` | nenhum | não | A estação tem vida própria. Apagar uma área não pode levar estações embora; a exclusão é barrada com 409 |
+| AreaRisco 1:N Abrigo, Alerta e Relato | FK no lado N | nenhum | não se aplica | Mapeadas só com `@ManyToOne`: ninguém precisa navegar da área para a lista de relatos |
+| Usuario N:1 AreaRisco | `usuario.area_id` (opcional) | nenhum | não se aplica | Bairro onde a pessoa mora |
+| Usuario N:M AreaRisco (áreas seguidas, unidirecional) | tabela de junção `usuario_area_seguida` (`usuario_id`, `area_id`) | nenhum | não se aplica | Áreas que a pessoa acompanha além da do cadastro: a do trabalho, a da escola dos filhos |
+| Relato N:1 Usuario | `relato.autor_id` | nenhum | não se aplica | O autor vem do token |
+| Alerta N:1 Estacao e Usuario | `estacao_id`, `emitido_por_id`, `encerrado_por_id` (opcionais) | nenhum | não se aplica | Alerta manual pode não ter estação; alerta automático não tem emissor humano |
+
+**O N:M das áreas seguidas.** Uma pessoa segue várias áreas, e uma área é seguida por várias pessoas: nenhum dos dois lados guarda a chave do outro, então a relação vive na tabela de junção `usuario_area_seguida` (`@ManyToMany` com `@JoinTable` no `Usuario`, como `Task` e `Tag` no curso). A chave primária é composta pelas duas colunas, e a coleção é um `Set`: a mesma área não entra duas vezes, e o seguir de novo não muda nada. Um índice em `usuario_id` atende a lista do usuário, porque a ordem das colunas da chave fica com o Hibernate. É unidirecional porque ninguém navega da área para quem a segue; a única consulta nesse sentido, a da exclusão da área, é um JPQL. Não tem cascade: a área existe sem o morador, e deixar de seguir não pode apagar a área. A coleção tem `@OptimisticLock(excluded = true)`: seguir uma área mexe só na tabela de junção e não sobe o `@Version` do `Usuario`, então não derruba com 409 uma edição de perfil feita ao mesmo tempo. Para duas chamadas simultâneas não repetirem o par nem passarem do teto de 20 áreas, o serviço trava o cadastro com `PESSIMISTIC_WRITE`, que não mexe na versão. A listagem carrega o usuário e as áreas num SELECT só (`@EntityGraph(attributePaths = "areasSeguidas")`), sem N+1. O perfil prod cria a tabela com `ddl-auto: update`, sem mexer nas linhas que já existem.
+
+**Fetch.** Todas as associações têm `fetch = FetchType.LAZY` escrito, inclusive os `@ManyToOne`, cujo padrão é EAGER. Listar alertas não precisa carregar estação e usuário de cada um. Quando a resposta precisa de um dado do pai, a consulta busca junto de forma pontual: `@EntityGraph(attributePaths = "area")` em `EstacaoRepository` e `AlertaRepository` (as respostas mostram o nome da área) e `join fetch` em `EstacaoRepository.buscarCriticas`. Assim a listagem faz um SELECT só, sem o problema N+1.
+
+**DTOs.** O controller nunca recebe nem devolve entidade. Os records de resposta levam só o id do pai (`areaId`, `estacaoId`, `autorId`), o que evita ciclo na serialização e não expõe o hash da senha. `spring.jpa.open-in-view` está desligado, então todo mapeamento para DTO acontece dentro do `@Transactional` do service.
+
+**Outros detalhes.** Enums gravados como texto (`EnumType.STRING`), datas em `Instant` (UTC; todo horário gravado, da leitura, do relato, do alerta e do cadastro, é cortado em microssegundos, a precisão que o banco guarda, pelo `Horario.agora()` e pelo `Leitura.setMedidaEm`: assim a resposta do POST mostra o mesmo valor que fica gravado, e a comparação com a última leitura não erra por uma fração) e índice em `leitura(estacao_id, medida_em)`, que é a busca do histórico. O PostgreSQL não cria índice para chave estrangeira, então as que as consultas usam têm o seu: `relato(autor_id)` para "meus relatos", `relato(area_id, status)` e `alerta(area_id, status)` para o que roda a cada leitura, e `area_id` em `estacao`, `abrigo` e `usuario`, além de `alerta(estacao_id)`, para os filtros e para o bloqueio da exclusão. O `ddl-auto: update` do prod cria esses índices também num banco que já existia.
+
+**Setters.** As entidades usam `@Getter` e `@NoArgsConstructor` do Lombok. Em `AreaRisco`, `Estacao`, `Leitura` e `Usuario`, o `@Setter` fica na classe, como no `Milestone` e na `Task` do professor. Em `Alerta`, `Relato` e `Abrigo`, cujo status e ocupação só podem mudar por regra, o `@Setter` vai só nos campos que o service preenche (título, mensagem, nome, endereço, capacidade...), como o `Project` do professor, que não tem setter genérico no `status`. Os campos guardados pelas regras só mudam pelos métodos de domínio: `encerrar` no alerta (status, `encerradoEm` e `encerradoPor`), `alterarStatus` e `definirPrioridade` no relato, e `registrarEntrada`, `registrarSaida`, `fechar`, `reabrir` e `informarOcupacao` no abrigo. Assim o service não tem como pular a regra, e um teste confere que esses setters não existem.
+
+**Bloqueio otimista.** `Abrigo`, `Alerta`, `Relato`, `Estacao`, `AreaRisco` e `Usuario` têm `@Version` (bloqueio otimista): durante a cheia vários agentes mexem no mesmo registro ao mesmo tempo (encerrar um alerta, atender ou descartar um relato, editar um abrigo), e sem a versão o segundo UPDATE gravaria por cima do primeiro. Com ela, a requisição que perde a corrida recebe 409 e vê o estado novo. No `Usuario`, a troca de senha (lenta, por causa do BCrypt) ao mesmo tempo que a troca de papel ou a edição do perfil desfazia uma das duas; agora a segunda recebe 409. Como o perfil prod cria o schema com `ddl-auto: update`, a coluna `versao` do `Usuario` tem valor padrão 0 e `not null` (`@ColumnDefault`), para as linhas que já existem no banco receberem 0 quando ela entra.
+
+**Trava pessimista.** Nas leituras e nas entradas e saídas do abrigo, a concorrência é resolvida com trava pessimista (`@Lock(PESSIMISTIC_WRITE)`, um `SELECT ... FOR UPDATE`): o registro da leitura trava a estação e depois a área, a edição e a exclusão da estação também (com as duas áreas, em ordem de id, quando a estação muda de área), o alerta manual trava a área, a criação e a edição do relato travam a área (a prioridade depende do nível dela) e a entrada ou saída trava o abrigo. Assim, leituras simultâneas da mesma área entram uma de cada vez, o nível da área não se perde (RN03) e não nascem dois alertas automáticos iguais (RN02); e 30 entradas simultâneas num abrigo com vaga são todas aceitas, sem nenhuma passar da capacidade (RN05). Aqui a trava é melhor que o 409, porque nem a estação deve ter uma leitura recusada nem o agente deve repetir uma entrada só por ter chegado junto com outra.
+
+**Campos únicos.** Dois cadastros simultâneos com o mesmo email esbarram na restrição única do banco: um entra, e o outro recebe 409 com a mensagem do email repetido. O mesmo vale para o código da estação, o outro campo único, ao criar ou renomear. O Hibernate registraria essa violação como WARN no log (logger `org.hibernate.orm.jdbc.error`), mas ela já é tratada, então esse logger fica em ERROR no `application.yml`. Um erro de banco inesperado continua no log, porque vira 500 e o `GlobalExceptionHandler` o registra em ERROR com o stack trace.
+
+## Consultas: por que cada tipo
+
+<details>
+<summary>Derived query, JPQL com @Query, Specification, paginação e ordenação: quando cada um é usado e por quê (clique para abrir)</summary>
+
+**Derived query** quando a consulta tem uma ou duas condições simples. O nome do método já documenta o que ele faz, e o Spring valida o nome na subida da aplicação.
+
+| Método | Uso |
+|---|---|
+| `UsuarioRepository.findByEmail`, `existsByEmail` | Login, filtro JWT e cadastro sem email repetido |
+| `RelatoRepository.findByAutorId(id, pageable)` | `GET /api/relatos/meus` |
+| `LeituraRepository.findByEstacaoId(id, pageable)` | Histórico de leituras da estação |
+| `LeituraRepository.findFirstByEstacaoIdAndMedidaEmOrderByIdDesc` | Leitura atual da estação, para reclassificar quando as cotas mudam. Duas leituras podem ter o mesmo `medidaEm`, e a atual é a última gravada: o `OrderByIdDesc` deixa o resultado determinístico |
+| `LeituraRepository.findByIdAndEstacaoId` | `GET /api/estacoes/{id}/leituras/{leituraId}`: a leitura só aparece pela URL da estação dona dela |
+| `AreaRiscoRepository.findByUfIgnoreCase` | Filtro por estado em `GET /api/areas?uf=RS` |
+| `EstacaoRepository.findByAreaId` (com `@EntityGraph`) | Estações de uma área |
+| `AlertaRepository.findByStatus`, `findByAreaIdAndStatus` | Lista por status e verificação da RN02 |
+| `AbrigoRepository.findByStatusOrderByNomeAsc` | Abrigos disponíveis |
+| `existsByAreaId`, `existsByEstacaoId`, `existsByCodigoIgnoreCase` | Bloquear exclusão com vínculo e código duplicado |
+
+**JPQL com `@Query`** quando o derived não alcança: agregação, junção com condição, projeção em record, ordenação por conta entre colunas e ordenação por uma regra do negócio, como a gravidade do alerta.
+
+| Consulta | Rota | O que o JPQL faz |
+|---|---|---|
+| `AreaRiscoRepository.rankingPorRelatosEmAberto` | `GET /api/areas/ranking` | `left join Relato r on ... and r.status in (...)` para a área sem relato também aparecer, `group by`, `count`, `max`, `coalesce` e `select new RankingAreaResponse(...)` |
+| `EstacaoRepository.buscarCriticas` | `GET /api/estacoes/criticas` | só estações ATIVAS com leitura da última hora, `join fetch e.area` (sem N+1) e `order by (e.ultimoNivelCm - e.cotaTransbordoCm) desc`, da estação mais perto do transbordo para a mais longe |
+| `EstacaoRepository.buscarSilenciosas` | `GET /api/estacoes/silenciosas` | estações ATIVAS com `ultimaLeituraEm is null or ultimaLeituraEm < :limite` e `order by e.ultimaLeituraEm asc nulls first` (as que nunca mandaram leitura primeiro): o derived query não expressa o "nulo **ou** antes do limite" com a ordenação dos nulos; `join fetch e.area` traz a área no mesmo SELECT (sem N+1) |
+| `AlertaRepository.buscarPorGravidade` e `buscarDaAreaPorGravidade` | `GET /api/alertas/ativos` (com e sem `?areaId=`) e `GET /api/alertas/minha-area` | `order by case a.nivel when EMERGENCIA then 3 when ALERTA then 2 when ATENCAO then 1 else 0 end desc, a.emitidoEm desc, a.id desc`. O nível é gravado como texto, e `order by a.nivel` daria a ordem alfabética (ALERTA, ATENCAO, EMERGENCIA). O CASE dá a cada nível o peso do `NivelRisco`, e o banco entrega a lista pronta, sem o service reordenar em memória. É SQL padrão e roda igual no H2 e no PostgreSQL; `@EntityGraph` traz a área no mesmo SELECT |
+| `LeituraRepository.existeLeituraIgual` | `POST /api/estacoes/{id}/leituras` e o lote | Recusa com 409 o reenvio da ponte MQTT: mesma estação, mesmo `medidaEm`, mesmo `nivelCm` e mesma `chuvaMmH`. Como derived query, seriam quatro condições num nome só (`existsByEstacaoIdAndMedidaEmAndNivelCmAndChuvaMmH`), acima da regra de duas ou três condições; o JPQL tem nome curto e deixa a regra à vista. Um teste lê os repositórios e recusa derived com mais de três condições |
+| `LeituraRepository.estatisticas` | `GET /api/estacoes/{id}/leituras/estatisticas` | `count`, `avg`, `min` e `max` calculados no banco e projetados num record, sem trazer as leituras para a memória |
+
+**Specification** nos filtros de tela, em que todos os parâmetros são opcionais e combináveis. Com derived query, um filtro nulo vira `is null`, e cada combinação pediria um método novo: com os 6 filtros de relato seriam 64 métodos. Cada filtro é um método pequeno em `RelatoSpecification` ou `AbrigoSpecification` e só entra no WHERE se o parâmetro veio preenchido.
+
+| Specification | Rota | Filtros |
+|---|---|---|
+| `RelatoSpecification.comFiltros` | `GET /api/relatos` | tipo, status, área, prioridade mínima, criado a partir de, criado até |
+| `AbrigoSpecification.comFiltros` | `GET /api/abrigos` | área, aceita pets, acessível para PcD, com vagas (compara as colunas `ocupacao < capacidade`; `comVagas=false` traz os lotados ou fechados), status |
+
+**Paginação e ordenação.** As listas recebem `Pageable` do Spring Data (`?page=0&size=10&sort=nome,asc`) com padrão definido em `@PageableDefault` e no máximo 100 itens por página. Valor inválido não dá erro, como no Spring Data: `size` acima de 100 vira 100, `size` zero, negativo ou que não é número volta ao padrão da rota, e `page` negativa ou que não é número volta para 0. O Swagger diz isso na descrição de cada parâmetro. Cada rota declara com `@CamposDeOrdenacao` a lista de campos pelos quais deixa ordenar, e o `PaginacaoConfig` recusa qualquer outro com 400, dizendo quais são aceitos. A mesma anotação diz quais desses campos são texto: só neles vale o `ignorecase` (`?sort=nome,asc,ignorecase`), porque o banco não aplica `upper()` em número, data ou enum, e o pedido daria 500. Termo com caractere de controle, como `%00`, também dá 400. Sem a lista, `?sort=emitidoPor.senha` (ou `emitidoPorSenha`, que o Spring Data resolve pelo camelCase) ordenaria alertas pelo hash da senha de quem emitiu, numa rota pública. O nível de risco (`nivel`, `nivelAtual`, `ultimoRisco`, `nivelRisco`) fica fora das listas: ele é gravado como texto (`EnumType.STRING`, como na semana 2), e o banco ordenaria NORMAL depois de EMERGENCIA, em ordem alfabética. A ordem por gravidade está nas rotas feitas para isso: `/api/alertas/ativos` (mais grave primeiro), `/api/estacoes/criticas` (mais perto do transbordo primeiro) e `/api/areas/ranking`. Os outros enums da lista (status, tipo, papel, origem) ordenam pelo nome, o que serve para agrupar os registros. Página com `page` vezes `size` acima do maior inteiro também dá 400, e não 500; a conta usa o tamanho que vale de fato, então `?page=300000000&size=0` dá 400, porque o `size` zero vira o padrão da rota. O painel de relatos ordena por padrão pela maior prioridade e, no empate, pelo mais antigo.
+
+</details>
+
+## Cache
+
+<details>
+<summary>Os três caches, o que fica fora deles, quando cada um é limpo e como ver o cache funcionando (clique para abrir)</summary>
+
+Spring Cache com o Caffeine como provedor. O cache guarda DTOs (records), nunca entidades: entidade fora da transação causaria `LazyInitializationException`.
+
+Quem mantém o cache correto é o `@CacheEvict` nas escritas. O `CacheConfig` envolve o gerenciador do Caffeine num `TransactionAwareCacheManagerProxy`: o evict de dentro de uma transação só vale depois do commit (e não vale no rollback). Sem isso, uma leitura concorrente entre o evict e o commit veria o banco antigo e guardaria o dado velho de novo. A configuração `maximumSize=500,expireAfterWrite=10m,recordStats` acrescenta duas coisas: um teto de memória e um prazo de 10 minutos como rede de segurança, caso alguma escrita fora da API mude o banco; e as estatísticas de acerto e erro que aparecem no Actuator.
+
+| Cache | O que guarda | Quando é limpo | Por que cachear |
+|---|---|---|---|
+| `alertasAtivos` | `AlertaServiceImpl.ativos()`, usado por `GET /api/alertas/ativos`, e `ativosDaArea(areaId)`, usado por `GET /api/alertas/ativos?areaId=` (chave: id da área) | `@CacheEvict(allEntries = true)` ao emitir, editar, encerrar ou excluir alerta, o que limpa a lista geral e a de cada área. No alerta automático, só quando um alerta nasce de fato (`condition = "#result != null"`). Também ao atualizar uma área, porque cada alerta guardado leva o nome dela. Ao excluir uma área, sai só a chave dela (`key = "#id"`), e a lista dela passa a dar 404 | É a consulta que o app faz toda vez que abre, e só muda quando um alerta muda |
+| `abrigosDisponiveis` | `AbrigoServiceImpl.disponiveis()`, usado por `GET /api/abrigos/disponiveis` | Em toda escrita de abrigo: criar, atualizar, abrir ou fechar, entrada, saída e exclusão | Durante a cheia muita gente procura vaga ao mesmo tempo |
+| `areas` (chave: id) | `AreaServiceImpl.buscarPorId`, usado por `GET /api/areas/{id}` | Ao atualizar ou excluir a área (`key = "#id"`), no registro de leitura, só quando o nível da área muda (`key = "#result.areaId()"`, `condition = "#result.nivelAreaAlterado()"`), e inteiro (`allEntries = true`) ao atualizar ou excluir uma estação, que pode mudar o nível de duas áreas (a antiga e a nova) | A tela do bairro mostra o nível de risco. As leituras chegam a cada 10 segundos, mas o nível muda raramente; limpar a cada leitura anularia o cache |
+
+Ficam fora do cache: relatos (têm dado pessoal, são diferentes para cada usuário e mudam o tempo todo), leituras (chegam a cada 10 segundos) e as listas paginadas (combinações demais de página, ordenação e filtro).
+
+Três jeitos de ver o cache funcionando:
+
+1. **Log.** Chame `GET /api/alertas/ativos` duas vezes. Na primeira o console mostra `Cache 'alertasAtivos' vazio: consultando o banco` e o SELECT; na segunda, nada, porque o método nem chega a rodar.
+2. **Métricas.** Com o token de ADMIN, `GET /actuator/metrics/cache.gets?tag=cache:alertasAtivos&tag=result:hit` mostra quantas leituras vieram do cache; com `result:miss`, quantas foram ao banco.
+3. **Invalidação.** Registre uma leitura que gere alerta e chame os ativos de novo: o log volta a aparecer, porque o `@CacheEvict` limpou o cache.
+
+`GET /actuator/caches` lista os três caches.
+
+Limitação conhecida: o Caffeine guarda o cache na memória de cada instância. Com várias réplicas da API, o próximo passo seria um cache distribuído, como o Redis.
+
+</details>
+
+## HATEOAS
+
+As respostas usam o formato HAL. As listas vêm com os itens em `_embedded`, os dados de paginação em `page` e os links de navegação (`first`, `prev`, `self`, `next`, `last`) em `_links`. Lista vazia também traz o `_embedded`, com a lista vazia (`{"_embedded": {"abrigos": []}}`): o HAL padrão omite o `_embedded` nesse caso, e o `RespostaHal` o mantém para o cliente ler sempre o mesmo formato. Na página pedida depois da última, o link `prev` sai (apontaria para outra página vazia) e ficam `first` e `last`. Cada recurso traz o link `self`, os recursos relacionados e as ações possíveis no estado atual para quem fez a requisição. Cada link de ação tem um `title` com o método e o corpo esperado (por exemplo `atender`: `PATCH com {"status": "EM_ATENDIMENTO"}`), porque `atender`, `descartar` e `resolver` levam à mesma URL. Quem pedir `Accept: application/prs.hal-forms+json` recebe a mesma resposta em HAL-FORMS, com `_templates`: um template por ação, com o nome do link, o método, o alvo e os campos do corpo, já com as regras da Bean Validation (obrigatório, tamanho, regex) e, nos campos de enum, os valores aceitos (nas ações que mudam o status, como `atender` e `fechar`, só o valor daquela ação, já preenchido e com `minItems` 1, porque o Spring HATEOAS não marca como obrigatório campo de PATCH). Os templates vêm do `Acoes`, que pendura cada um no link `self`; o HAL continua o formato padrão, sem `_templates`:
+
+| Recurso | Relacionados | Ações (dependem do estado e do papel) |
+|---|---|---|
+| Alerta | `area`, `estacao`, `abrigos-com-vaga` | ATIVO e usuário AGENTE ou ADMIN: `encerrar`, `editar`. ADMIN: `excluir`, só em alerta manual já encerrado. Alerta automático encerrado não tem ação |
+| Relato | `area`, `meus-relatos` | Para AGENTE ou ADMIN: ABERTO tem `atender` e `descartar`; EM_ATENDIMENTO tem `resolver`. Para o autor, enquanto ABERTO: `editar`, `excluir` |
+| Abrigo | `area`, `abrigos-disponiveis` | Com vaga: `registrar-entrada`. Com gente: `registrar-saida`. Aberto ou lotado: `fechar`. Fechado: `reabrir`. ADMIN: `excluir`, só com o abrigo vazio |
+| Estação | `area`, `leituras`, `estatisticas-24h` | Estação ATIVA e usuário AGENTE ou ADMIN: `registrar-leitura`. ADMIN: `atualizar` e, se a estação não tem alerta no histórico, `excluir` |
+| Leitura | `estacao`, `estatisticas-24h`. Na resposta do registro: `estacao`, `area` e, quando a leitura abre um alerta automático, `alerta` | nenhuma: leitura não muda depois de gravada |
+| Área | `estacoes`, `abrigos-com-vaga`, `alertas-ativos` (só os alertas ativos daquela área: `/api/alertas/ativos?areaId=`) | Usuário logado: `seguir-area` ou, se já segue, `deixar-de-seguir-area`. ADMIN: `atualizar` e, se a área não tem estações, abrigos, alertas, relatos nem moradores, `excluir` |
+| Linha do ranking | `area`, `abrigos-com-vaga` | nenhuma: é um relatório |
+| Usuário (também no `/api/auth/me`) | `area`; no próprio cadastro, `meus-relatos`, `alertas-da-minha-area` e `areas-seguidas`; para o ADMIN, também `usuarios` | No próprio cadastro: `editar-perfil` e `trocar-senha`. ADMIN: `alterar-papel`, menos no registro dele mesmo, que não pode mudar o próprio papel |
+| Estatística das leituras | `estacao`, `leituras`; o `self` guarda a janela pedida (`?horas=24`) | nenhuma: é um relatório |
+| Cadastro criado (`POST /api/auth/register`) | `self` (o cadastro, o mesmo endereço do `Location`) e, se veio `areaId`, `area` | `login`, o próximo passo. O Content-Type continua o de antes: `application/json` para quem não manda `Accept` ou pede JSON (o `produces` da rota começa por ele), e `hal+json` ou HAL-FORMS para quem pede esses tipos |
+
+Quem não está logado não recebe link de ação. O `excluir` só aparece quando a exclusão vai dar certo: numa lista, uma consulta agregada por página (`AreaRiscoRepository.buscarIdsComVinculos`, `AlertaRepository.buscarEstacaoIdsComAlertas`) diz quais itens têm vínculo, sem uma consulta por item. O link orienta o cliente, mas não substitui a checagem: o servidor confere a permissão em toda requisição.
+
+## Actuator
+
+| Endpoint | Acesso | O que mostra |
+|---|---|---|
+| `/actuator/health` | público; detalhes só para ADMIN | Público: só o status (`UP`). Com o token de ADMIN: banco de dados e disco (`show-details: when-authorized`), que mostram o tipo de banco e o caminho da pasta e não devem ficar abertos. Cada componente em separado (`/actuator/health/db`) também é só do ADMIN: sem token, 401. Componente que não existe dá 404 com o JSON de erro da API (o `ErroVazioDoActuatorEmJson` preenche o corpo que o Actuator deixa vazio) |
+| `/actuator/info` | público | Nome, descrição e versão da aplicação e dados do build. Versão do Java e do sistema operacional ficam de fora, pelo mesmo motivo |
+| `/actuator/metrics` | ADMIN | Métricas da JVM e do HTTP, acertos e erros do cache (`cache.gets`) e a métrica do domínio `guardario.alertas.emitidos`, com as tags `origem` e `nivel` |
+| `/actuator/caches` | ADMIN | Os três caches da aplicação |
+
+## Segurança
+
+<details>
+<summary>Fluxo do JWT, 401 x 403, sessão stateless, CORS para o app e segredos (clique para abrir)</summary>
+
+**Fluxo do JWT, do login à requisição protegida:**
+
+1. `POST /api/auth/register` grava o usuário como CIDADAO, com a senha em hash BCrypt.
+2. `POST /api/auth/login` passa pelo `AuthenticationManager`, que busca o usuário pelo `UserDetailsService` e compara a senha com `BCrypt.matches`. Senha errada lança `BadCredentialsException`, que vira 401 com uma mensagem genérica, para não revelar quais emails existem. O cadastro, como no projeto da disciplina, ainda responde 409 para email repetido; esconder isso exigiria confirmar o email por mensagem, o que fica fora do escopo.
+3. O `JwtService` gera um token HS256 que vale 1 hora, com o email no `sub`, o papel numa claim informativa e a `versaoToken` do usuário, que sobe a cada troca de senha.
+4. O app manda `Authorization: Bearer <token>` em cada requisição.
+5. O `JwtAuthenticationFilter` (um `OncePerRequestFilter`) valida assinatura e expiração, carrega o usuário do banco e coloca no `SecurityContext`. O papel que vale é o do banco: uma promoção feita pelo ADMIN vale na hora, e um papel forjado no token não adianta. O filtro também compara a `versaoToken` do token com a do banco: a troca de senha (`PUT /api/auth/senha`) derruba todo token emitido antes, inclusive o da própria chamada, que passa a dar 401 com `WWW-Authenticate: Bearer error="invalid_token"`. Token emitido antes desta regra, sem a claim, conta como versão 0 e vale até expirar. A nova senha igual à atual dá 400 no campo `novaSenha`.
+6. O `SecurityConfig` controla as áreas de URL: rotas públicas (o GET e também o HEAD, que é o GET sem corpo, e o OPTIONS, que só lista os métodos da rota), a área de cada papel (as escritas de AGENTE e de ADMIN, que assim são negadas antes da validação do corpo), `/api/usuarios/**` e `/actuator/**` só para ADMIN, menos o `GET /api/usuarios/{id}`, que o próprio usuário também faz. Depois disso, o `@PreAuthorize` de cada método controla a ação, e o service confere a posse (relato de outra pessoa dá 403, sempre depois de verificar se existe: 404 vem antes de 403).
+
+**401 x 403.** Sem token, ou com token inválido ou expirado, o `RestAuthenticationEntryPoint` responde 401. Usuário logado sem permissão recebe 403, do `RestAccessDeniedHandler` (área de URL) ou do `GlobalExceptionHandler` (`@PreAuthorize` e regra de posse). Os dois handlers da cadeia de filtros escrevem o mesmo JSON de erro do resto da API.
+
+**Stateless.** Sem sessão no servidor (`SessionCreationPolicy.STATELESS`) e com o CSRF desligado, porque o token vai no header e não existe cookie de sessão para um site malicioso aproveitar.
+
+**CORS para o app.** O `CorsConfigurationSource` libera as origens de `CORS_ALLOWED_ORIGINS` (o padrão inclui `10.0.2.2`, endereço com que o emulador Android enxerga a máquina), os métodos GET, HEAD, POST, PUT, PATCH, DELETE e OPTIONS, os headers `Authorization`, `Content-Type` e `Accept`, e expõe o header `Location` para o app ler o id do recurso criado. Origem fora da lista, ou preflight que pede um método ou header que a API não aceita, recebe 403 com o mesmo JSON de erro do resto da API e o motivo na mensagem (origem, método ou header recusado): o CORS roda no `CorsComErroEmJson`, que usa o processador do Spring e escreve a recusa pelo `JsonErrorWriter`.
+
+**Segredos.** Nenhuma senha ou chave real está no repositório. A chave do JWT vem de `JWT_SECRET`; sem ela, a API gera uma chave temporária a cada subida. No perfil dev isso é o esperado e sai no log como INFO. No perfil `prod` a chave é obrigatória e a aplicação não sobe sem ela, porque uma chave aleatória invalidaria os tokens a cada reinício. A senha do PostgreSQL vem de `DB_PASSWORD`, sem valor padrão, e a do primeiro ADMIN de produção vem de `ADMIN_PASSWORD`. As senhas da tabela de usuários de teste existem só na carga do perfil `dev`.
+
+</details>
+
+## Validação e tratamento de erros
+
+Bean Validation nos records de entrada (`@NotBlank`, `@Size`, `@Email`, `@Pattern`, `@Positive`, `@PastOrPresent`, `@DecimalMin` e outras) e cinco constraints próprias: duas de classe, porque comparam campos entre si (`@CotasCrescentes` na estação e `@OcupacaoDentroDaCapacidade` no abrigo), e três de campo: `@TamanhoEmBytes(max = 72)` na senha, porque o BCrypt só considera 72 bytes e letra com acento ocupa 2; `@NivelDeAlerta`, que recusa alerta manual com nível NORMAL; e `@JanelaDeMedicao`, que só aceita leitura dos últimos 30 dias. A UF precisa ser a sigla de um estado, o telefone tem só dígitos com DDD, o email precisa de domínio com ponto e valor de outro tipo dá 400 em vez de ser convertido em silêncio pelo Jackson: número decimal em campo inteiro, texto no lugar de número, número no lugar de booleano ou de enum, e número ou booleano no lugar de texto (`JacksonConfig`). A data da leitura (`medidaEm`) aceita o texto ISO 8601 com fuso (`2026-11-15T10:30:00Z`) ou o número de segundos desde 1970, que é o padrão do Jackson para datas; texto sem fuso dá 400. Os records de relato, login e cadastro tiram os espaços em volta do texto no construtor compacto, antes da validação. Texto com o caractere nulo (U+0000), que o PostgreSQL não guarda, dá 400 no campo, no corpo (`JacksonConfig`) e nos parâmetros de query (`PaginacaoConfig`); sem isso, o banco recusava o INSERT e a resposta era um 409 sem relação com o pedido. Os controllers têm `@Validated`, o que faz valer `@Positive` e `@Max` nos parâmetros de rota e de query.
+
+O `GlobalExceptionHandler` (`@RestControllerAdvice`) padroniza todas as respostas de erro: `error` é sempre o nome do status HTTP e `message` explica o problema em português. O `IdiomaConfig` fixa o idioma em pt-BR, para as mensagens da Bean Validation não mudarem com o `Accept-Language` do navegador nem com o idioma do servidor. Erro de campo sai em `errors`, com o nome do campo. Os erros da Bean Validation saem todos juntos, inclusive os de classe. Valor de tipo errado (um enum que não existe, texto no lugar de número) é conferido antes, na leitura do JSON, como ensina a semana 5: o corpo nem chega a virar o record, então esse erro sai sozinho e os da Bean Validation aparecem na próxima tentativa, depois de corrigido o tipo:
+
+```json
+{
+  "timestamp": "2026-11-18T14:30:00Z",
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Dados inválidos: confira os campos em errors",
+  "path": "/api/estacoes",
+  "errors": [
+    { "field": "nome", "message": "não deve estar em branco" },
+    { "field": "estacaoRequest", "message": "As cotas precisam ser crescentes: atenção < alerta < transbordo" }
+  ]
+}
+```
+
+Os demais erros seguem o formato `ErrorCustomResponse`:
+
+```json
+{
+  "timestamp": "2026-11-18T14:30:00Z",
+  "status": 409,
+  "error": "Conflict",
+  "message": "Transição de status inválida: ABERTO não pode ir para RESOLVIDO",
+  "path": "/api/relatos/7/status"
+}
+```
+
+| Status | Quando |
+|---|---|
+| 400 | Saem em `errors`, com o nome do campo: Bean Validation, valor de tipo errado no corpo, id que não é número ou não é positivo, parâmetro fora do enum ou ausente, regra de campo conferida no service (estação de outra área, status LOTADO, `de` depois de `ate`), ordenação por campo não aceito (ou com `ignorecase` em campo que não é texto) e página fora do intervalo. Saem só com `message`, porque não há campo: JSON mal formado, corpo ausente e corpo que não é um objeto (uma lista ou um valor solto no lugar de `{ ... }`) |
+| 401 | Sem token, token inválido, expirado ou sem a claim `exp`, login com senha errada. Todo 401 traz o header `WWW-Authenticate: Bearer`, com `error="invalid_token"` quando o token enviado não valeu (RFC 6750) |
+| 403 | Papel sem permissão (mesma mensagem no `SecurityConfig` e no `@PreAuthorize`) ou recurso de outra pessoa (a mensagem diz o motivo) |
+| 404 | Id inexistente, ou rota que não existe quando a requisição tem token. Sem token, a rota desconhecida dá 401: toda rota fora da lista pública exige login, e a segurança responde antes de o Spring procurar a rota |
+| 405 | Método HTTP que a rota não aceita, com o header `Allow`, que lista só os métodos que a rota aceita de verdade (o `RotasDaApi` lê os mapeamentos do Spring; o GET também atende o HEAD, e toda rota atende o OPTIONS), inclusive no TRACE, que o Tomcat recusa. O `OPTIONS` anuncia o mesmo `Allow` (o filtro `OptionsComAllowDaRota` troca o do Spring, que juntava os métodos de `/api/alertas/{id}` em `/api/alertas/ativos`). Fora das rotas, o arquivo estático que existe (a página do Swagger UI) tem o `Allow` com GET, HEAD e OPTIONS, e o TRACE ou o OPTIONS num caminho em que nada responde, ou no próprio `/error`, devolve 404, como o GET. O TRACE é recusado pelo Tomcat antes da segurança, então responde igual com ou sem token. Vale também para as rotas fixas (`/ativos`, `/criticas`, `/ranking`, `/disponiveis`, `/meus` e `/api/estacoes/{id}/leituras/lote`, que só aceita POST): quando duas rotas casam com o caminho, vale a de menos variáveis, e `PUT /api/alertas/ativos` dá 405 para quem tem o papel da escrita (sem ele, o 403 da área de URL vem antes), e não o 400 de "id deve ser um número", que continua valendo para id que não é número fora delas |
+| 406 | `Accept` com um formato que a API não produz, como `text/plain` ou `application/xml`. Nas escritas (POST, PUT e PATCH), o `NegociacaoConfig` confere o `Accept` antes de o método rodar, então o 406 sai sem gravar nada. O corpo vem no mesmo JSON de erro: o HTTP permite que a resposta de erro ignore o `Accept`, e todo erro da API sai em JSON, peça o cliente o formato que pedir |
+| 409 | Regra de negócio: email ou código de estação repetido, transição de status inválida, abrigo lotado ou fechado, alerta já encerrado, exclusão de registro com vínculos, ou duas requisições alterando o mesmo registro ao mesmo tempo. Quando o banco recusa um valor (texto longo demais, caractere inválido), o `GlobalExceptionHandler` responde 400, e não 409 |
+| 415 | Corpo enviado sem `Content-Type: application/json` (no Postman, body raw como "Text") |
+| 500 | Erro inesperado: o detalhe fica no log e o cliente recebe uma mensagem genérica |
+
+Requisição que o Tomcat recusa antes de chegar ao Spring (barra codificada `%2F`, escape inválido como `%zz`, byte nulo, caractere proibido na URL, header grande demais) também sai no `ErrorCustomResponse` em JSON, com 400: a `ErroDoTomcatEmJson` substitui a página HTML de erro do Tomcat.
+
+## Endpoints
+
+| Método | Rota | Acesso | Sucesso |
+|---|---|---|---|
+| POST | `/api/auth/register` | público | 201 + Location (o cadastro criado, que o próprio usuário consulta depois do login) e `_links` com `self` e `login` |
+| POST | `/api/auth/login` | público | 200 |
+| PUT | `/api/auth/me` | logado | 200 |
+| GET | `/api/auth/me` | logado | 200 |
+| PUT | `/api/auth/senha` | logado | 204 |
+| GET | `/api/auth/me/areas-seguidas` | logado (só as próprias) | 200 |
+| PUT | `/api/auth/me/areas-seguidas/{areaId}` | logado (só as próprias; até 20) | 204 |
+| DELETE | `/api/auth/me/areas-seguidas/{areaId}` | logado (só as próprias) | 204 |
+| GET | `/api/usuarios` | ADMIN | 200 |
+| GET | `/api/usuarios/{id}` | ADMIN, ou o próprio usuário (é o `Location` do cadastro) | 200 |
+| PUT | `/api/usuarios/{id}/papel` | ADMIN | 200 |
+| GET | `/api/areas?uf=` | público | 200 |
+| GET | `/api/areas/{id}` | público (cache) | 200 |
+| GET | `/api/areas/ranking` | público | 200 |
+| POST | `/api/areas` | ADMIN | 201 + Location |
+| PUT | `/api/areas/{id}` | ADMIN | 200 |
+| DELETE | `/api/areas/{id}` | ADMIN | 204 |
+| GET | `/api/estacoes?areaId=` | público | 200 |
+| GET | `/api/estacoes/{id}` | público | 200 |
+| GET | `/api/estacoes/criticas` | público | 200 |
+| GET | `/api/estacoes/silenciosas?minutos=30` | AGENTE, ADMIN | 200 |
+| POST | `/api/estacoes` | ADMIN | 201 + Location |
+| PUT | `/api/estacoes/{id}` | ADMIN | 200 |
+| DELETE | `/api/estacoes/{id}` | ADMIN | 204 |
+| GET | `/api/estacoes/{id}/leituras` | público | 200 |
+| POST | `/api/estacoes/{id}/leituras` | AGENTE, ADMIN | 201 + Location |
+| POST | `/api/estacoes/{id}/leituras/lote` | AGENTE, ADMIN | 201 + Location |
+| GET | `/api/estacoes/{id}/leituras/{leituraId}` | público | 200 |
+| GET | `/api/estacoes/{id}/leituras/estatisticas?horas=24` | público | 200 |
+| GET | `/api/alertas?status=` | público | 200 |
+| GET | `/api/alertas/ativos` | público (cache) | 200 |
+| GET | `/api/alertas/ativos?areaId=` | público (cache) | 200 |
+| GET | `/api/alertas/minha-area` | logado | 200 |
+| GET | `/api/alertas/{id}` | público | 200 |
+| POST | `/api/alertas` | AGENTE, ADMIN | 201 + Location |
+| PUT | `/api/alertas/{id}` | AGENTE, ADMIN | 200 |
+| PATCH | `/api/alertas/{id}/encerrar` | AGENTE, ADMIN | 200 |
+| DELETE | `/api/alertas/{id}` | ADMIN | 204 (só alerta manual já encerrado; automático ou ativo dá 409) |
+| GET | `/api/abrigos?areaId=&aceitaPets=&acessivelPcd=&comVagas=&status=` | público | 200 |
+| GET | `/api/abrigos/disponiveis` | público (cache) | 200 |
+| GET | `/api/abrigos/{id}` | público | 200 |
+| POST | `/api/abrigos` | AGENTE, ADMIN | 201 + Location |
+| PUT | `/api/abrigos/{id}` | AGENTE, ADMIN | 200 |
+| PATCH | `/api/abrigos/{id}/status` | AGENTE, ADMIN | 200 |
+| POST | `/api/abrigos/{id}/entradas` | AGENTE, ADMIN | 200 |
+| POST | `/api/abrigos/{id}/saidas` | AGENTE, ADMIN | 200 |
+| DELETE | `/api/abrigos/{id}` | ADMIN | 204 (só com o abrigo vazio; com gente dentro, 409) |
+| POST | `/api/relatos` | logado | 201 + Location |
+| GET | `/api/relatos/meus` | logado | 200 |
+| GET | `/api/relatos?tipo=&status=&areaId=&prioridadeMin=&de=&ate=` | AGENTE, ADMIN | 200 |
+| GET | `/api/relatos/{id}` | autor, AGENTE, ADMIN | 200 |
+| PUT | `/api/relatos/{id}` | autor, enquanto ABERTO | 200 |
+| PATCH | `/api/relatos/{id}/status` | AGENTE, ADMIN | 200 |
+| DELETE | `/api/relatos/{id}` | autor enquanto ABERTO, ou ADMIN | 204 |
+
+As rotas de listagem aceitam também `page`, `size` e `sort`. A descrição de cada rota, os exemplos de corpo e todos os códigos de resposta estão no Swagger UI.
+
+## Integração com o app Mobile
+
+- No emulador Android, a API fica em `http://10.0.2.2:8080`.
+- As listas vêm no formato HAL: os itens ficam em `_embedded.<nome>` (por exemplo `_embedded.alertas`), mesmo quando a lista está vazia, e a paginação em `page`.
+- Rotas protegidas pedem o header `Authorization: Bearer <token>`. O token vale 1 hora; quando expira, a API responde 401 e o app volta para o login.
+- Áreas, estações, alertas e abrigos funcionam sem login, para quem ainda não tem conta.
+
+## Testes
+
+`./mvnw test` roda 313 testes:
+
+- 28 testes de unidade, sem Spring e sem banco: 19 das regras que ficam nas entidades e nos enums (régua de risco nas fronteiras de cada cota, nível da área só com estações ativas, leitura atrasada ou antiga, lotação do abrigo, prioridade, máquina de estados, encerramento de alerta, campos das regras sem setter público e ocupação do abrigo fechado), 4 do JWT (`JwtServiceTest`: a chave e o token sem `exp`), 2 da lista vazia no HAL (`RespostaHalTest`), 2 das consultas (`ConsultasDerivadasTest`: nenhum derived query passa de três condições) e 1 do que o banco recusa (`GlobalExceptionHandlerTest`: valor inválido dá 400, unique violada dá 409).
+- 285 testes de integração que sobem a aplicação inteira e chamam a API por HTTP (com o MockMvc; o `ServidorRealIntegrationTest`, por socket), passando pela segurança, pelo cache e pelo banco de verdade: status e formato de cada erro, 401 x 403, token expirado, posse, alerta automático, substituição de alertas, nível da área quando a estação muda de área ou de status, filtros com Specification, links HATEOAS mudando com o estado e sem template, invalidação e métricas do cache, link excluir sem N+1 (contando os comandos SQL), Actuator, OpenAPI, CORS e o perfil prod subindo sem carga de demonstração. Três classes cobrem o que costuma escapar: `MatrizDeAutorizacaoIntegrationTest` passa por toda rota protegida (401 sem token, 403 para quem não tem o papel) e pelas rotas públicas de consulta (200 sem token); `ConcorrenciaIntegrationTest` e os testes de abrigo e leitura disparam requisições ao mesmo tempo (entradas no abrigo, leituras da mesma área, encerrar o mesmo alerta, atender e descartar o mesmo relato, cadastros com o mesmo email); `CasosExtremosIntegrationTest` cobre corpo ausente, campo obrigatório nulo, lista vazia e paginação nos limites (página depois da última, size zero, negativo e acima do teto). O `ServidorRealIntegrationTest` sobe o Tomcat de verdade numa porta livre e manda requisições cruas por socket, para conferir o JSON dos erros que o Tomcat responde antes do Spring e o `Allow` do TRACE. O `HalFormsIntegrationTest` confere os templates de cada ação em HAL-FORMS e que o HAL padrão continua sem eles.
+
+## Estrutura do projeto
+
+```
+src/main/java/br/com/fiap/guardario
+├── assembler        links HATEOAS de cada recurso, o Acoes (templates HAL-FORMS) e o RespostaHal (lista vazia com _embedded, links da página fora do intervalo)
+├── configurations   SecurityConfig, GlobalExceptionHandler, PaginaDeErroController, OpenApiConfig, PaginacaoConfig e @CamposDeOrdenacao, NegociacaoConfig, RotasDaApi e OptionsComAllowDaRota, HateoasConfig, IdiomaConfig, JacksonConfig, CacheConfig, TomcatConfig e ErroDoTomcatEmJson, DataInitializer, AdminInitializer
+├── controller       rotas REST e documentação do Swagger
+├── dto              records de entrada e saída
+├── exceptions       exceções próprias: recurso não encontrado (404), regra de negócio (409) e campo inválido conferido no service (400)
+├── mapper           entidade para DTO
+├── model            entidades JPA e enums, com as regras que pertencem a elas
+├── repository       Spring Data JPA: derived queries e JPQL
+├── security         JWT, filtros (JWT, CORS e o erro vazio do Actuator), handlers de 401 e 403
+├── service          interfaces e implementações (regras, transações e cache)
+├── specification    filtros dinâmicos
+└── validation       constraints customizadas
+```
+
+Stack: Java 17+, Spring Boot 4.1.2 (Spring Web MVC, Data JPA, Validation, Security, Cache, HATEOAS, Actuator), Caffeine, JJWT 0.13.0, springdoc-openapi 3.1.1, Lombok, H2 (perfil dev) e PostgreSQL (perfil prod).
+
+## Uso de IA generativa
+
+Raphael usou o Claude Code, assistente de programação da Anthropic, para auxiliar no desenvolvimento desta API. A proposta do GuardaRio (o problema, as regras de negócio e os papéis) vem do documento de solução do grupo, e os requisitos vêm do enunciado da Global Solution e das convenções da disciplina.
+
+Em que partes o Claude Code foi usado:
+
+- escrever o código da API a partir desses requisitos: entidades e relacionamentos, repositórios e consultas, services com as regras de negócio, controllers, segurança com JWT, cache, HATEOAS, tratamento de erros e documentação do Swagger;
+- escrever os testes de unidade e de integração, este README, a coleção do Postman e as issues com as tarefas dos outros integrantes;
+- conferir o projeto contra a rubrica do enunciado oito vezes, a segunda e a terceira com agentes separados, sem acesso às conferências anteriores, e corrigir as lacunas apontadas;
+- rodar o build, os testes e a coleção do Postman para conferir cada mudança.
+
+Raphael definiu o escopo e as fontes, pediu as conferências contra a rubrica e decide o que entra na entrega.
+
+## Referências
+
+- FIAP. Global Solution 2026/2: CitizenTech. Apresentação do kickoff, 04/11/2026.
+- Defesa Civil do RS, boletins sobre as enchentes de 2024, via SBT News e Poder360.
+- IBGE e Cemaden. População em áreas de risco no Brasil (2018). https://agenciadenoticias.ibge.gov.br/agencia-noticias/21566-estudo-inedito-mostra-moradores-sujeitos-a-enchentes-e-deslizamentos
+- World Meteorological Organization. Early Warnings for All. https://wmo.int/activities/early-warnings-all
+- Nações Unidas Brasil. Objetivos de Desenvolvimento Sustentável. https://brasil.un.org/pt-br/sdgs

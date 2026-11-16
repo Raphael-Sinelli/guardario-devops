@@ -1,0 +1,225 @@
+package br.com.fiap.guardario.controller;
+
+import br.com.fiap.guardario.configurations.CamposDeOrdenacao;
+import br.com.fiap.guardario.assembler.EstacaoModelAssembler;
+import br.com.fiap.guardario.assembler.LeituraModelAssembler;
+import br.com.fiap.guardario.assembler.RespostaHal;
+import br.com.fiap.guardario.dto.*;
+import br.com.fiap.guardario.service.EstacaoService;
+import br.com.fiap.guardario.service.LeituraService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Positive;
+import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.data.web.PagedResourcesAssembler;
+import org.springframework.hateoas.CollectionModel;
+import org.springframework.hateoas.EntityModel;
+import org.springframework.hateoas.IanaLinkRelations;
+import org.springframework.hateoas.Link;
+import org.springframework.hateoas.PagedModel;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
+
+@RestController
+@RequestMapping("/api/estacoes")
+@Validated
+@RequiredArgsConstructor
+@Tag(name = "Estações e leituras", description = "Estações IoT que medem o rio e as leituras que elas enviam")
+public class EstacaoController {
+
+    private final EstacaoService estacaoService;
+    private final LeituraService leituraService;
+    private final EstacaoModelAssembler assembler;
+    private final LeituraModelAssembler leituraAssembler;
+    private final PagedResourcesAssembler<EstacaoResponse> pagedAssembler;
+    private final PagedResourcesAssembler<LeituraResponse> pagedLeituraAssembler;
+
+    // sem o nível de risco: ele é gravado como texto (EnumType.STRING), e a ordem alfabética não é a de gravidade
+    @CamposDeOrdenacao(value = {"codigo", "nome", "rio", "status", "ultimoNivelCm", "ultimaLeituraEm", "id"}, texto = {"codigo", "nome", "rio"})
+    @GetMapping
+    @SecurityRequirements
+    @Operation(summary = "Lista as estações", description = "Pública, paginada e ordenável. Filtro opcional por área.")
+    @ApiResponse(responseCode = "200", description = "Página de estações")
+    @ApiResponse(responseCode = "400", description = "Parâmetro inválido")
+    public ResponseEntity<PagedModel<EntityModel<EstacaoResponse>>> listar(
+            @Parameter(description = "Id da área (opcional, por exemplo 1)") @RequestParam(required = false) @Positive Long areaId,
+            @ParameterObject @PageableDefault(size = 10, sort = "codigo") Pageable pageable) {
+        return ResponseEntity.ok(assembler.toPagedModel(estacaoService.listar(areaId, pageable), pagedAssembler));
+    }
+
+    @GetMapping("/{id}")
+    @SecurityRequirements
+    @Operation(summary = "Busca uma estação pelo id", description = "Público. Traz as cotas, a última leitura e o risco atual; AGENTE e ADMIN recebem o link registrar-leitura se a estação estiver ATIVA.")
+    @ApiResponse(responseCode = "200", description = "Estação encontrada")
+    @ApiResponse(responseCode = "400", description = "Id menor ou igual a zero")
+    @ApiResponse(responseCode = "404", description = "Estação não existe")
+    public ResponseEntity<EntityModel<EstacaoResponse>> buscarPorId(@PathVariable @Positive Long id) {
+        return ResponseEntity.ok(assembler.toModel(estacaoService.buscarPorId(id)));
+    }
+
+    @GetMapping("/criticas")
+    @SecurityRequirements
+    @Operation(summary = "Estações ativas em ALERTA ou EMERGENCIA",
+            description = "Entram só as estações ATIVAS com leitura da última hora: a que parou de mandar leitura não segura o risco antigo. "
+                    + "JPQL com join fetch (sem N+1), da mais perto do transbordo para a mais longe.")
+    @ApiResponse(responseCode = "200", description = "Estações críticas")
+    public ResponseEntity<CollectionModel<EntityModel<EstacaoResponse>>> criticas() {
+        CollectionModel<EntityModel<EstacaoResponse>> model = assembler.toCollectionModel(estacaoService.criticas())
+                .add(linkTo(methodOn(EstacaoController.class).criticas()).withSelfRel());
+        return ResponseEntity.ok(RespostaHal.colecao(model, EstacaoResponse.class));
+    }
+
+    @GetMapping("/silenciosas")
+    @PreAuthorize("hasAnyRole('AGENTE', 'ADMIN')")
+    @Operation(summary = "Estações ativas que pararam de mandar leitura",
+            description = "Somente AGENTE e ADMIN. Estações ATIVAS sem leitura há mais de 'minutos' minutos, ou que nunca mandaram leitura: "
+                    + "as que nunca mandaram vêm primeiro, depois da leitura mais antiga para a mais recente. JPQL com join fetch (sem N+1).")
+    @ApiResponse(responseCode = "200", description = "Estações silenciosas")
+    @ApiResponse(responseCode = "400", description = "Minutos fora de 1 a 1440")
+    @ApiResponse(responseCode = "401", description = "Sem token ou token inválido")
+    @ApiResponse(responseCode = "403", description = "Usuário logado não é AGENTE nem ADMIN")
+    public ResponseEntity<CollectionModel<EntityModel<EstacaoResponse>>> silenciosas(
+            @Parameter(description = "Minutos sem leitura (1 a 1440)", example = "30")
+            @RequestParam(defaultValue = "30") @Positive @Max(1440) Integer minutos) {
+        CollectionModel<EntityModel<EstacaoResponse>> model = assembler.toCollectionModel(estacaoService.silenciosas(minutos))
+                .add(linkTo(methodOn(EstacaoController.class).silenciosas(minutos)).withSelfRel());
+        return ResponseEntity.ok(RespostaHal.colecao(model, EstacaoResponse.class));
+    }
+
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Cadastra uma estação",
+            description = "Somente ADMIN. As cotas precisam ser crescentes: atenção < alerta < transbordo.")
+    @ApiResponse(responseCode = "201", description = "Estação criada")
+    @ApiResponse(responseCode = "400", description = "Campos inválidos ou cotas fora de ordem")
+    @ApiResponse(responseCode = "403", description = "Usuário logado não é ADMIN")
+    @ApiResponse(responseCode = "404", description = "A área informada não existe")
+    @ApiResponse(responseCode = "409", description = "Código de estação já usado")
+    public ResponseEntity<EntityModel<EstacaoResponse>> criar(@RequestBody @Valid EstacaoRequest request) {
+        EntityModel<EstacaoResponse> model = assembler.toModel(estacaoService.criar(request));
+        return ResponseEntity.created(model.getRequiredLink(IanaLinkRelations.SELF).toUri()).body(model);
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Atualiza uma estação", description = "Somente ADMIN. Para tirar uma estação do ar, mude o status para MANUTENCAO ou INATIVA.")
+    @ApiResponse(responseCode = "200", description = "Estação atualizada")
+    @ApiResponse(responseCode = "400", description = "Campos inválidos ou cotas fora de ordem")
+    @ApiResponse(responseCode = "403", description = "Usuário logado não é ADMIN")
+    @ApiResponse(responseCode = "404", description = "Estação ou área não existe")
+    @ApiResponse(responseCode = "409", description = "Código de estação já usado por outra")
+    public ResponseEntity<EntityModel<EstacaoResponse>> atualizar(@PathVariable @Positive Long id,
+                                                                  @RequestBody @Valid EstacaoRequest request) {
+        return ResponseEntity.ok(assembler.toModel(estacaoService.atualizar(id, request)));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Exclui uma estação", description = "Somente ADMIN. As leituras vão junto (cascade). Estação com alertas no histórico não pode ser excluída.")
+    @ApiResponse(responseCode = "204", description = "Estação excluída")
+    @ApiResponse(responseCode = "403", description = "Usuário logado não é ADMIN")
+    @ApiResponse(responseCode = "404", description = "Estação não existe")
+    @ApiResponse(responseCode = "409", description = "A estação tem alertas no histórico")
+    public ResponseEntity<Void> excluir(@PathVariable @Positive Long id) {
+        estacaoService.excluir(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    // ---------- leituras (recurso aninhado: a estação vem da URL) ----------
+
+    // sem o nível de risco: ele é gravado como texto (EnumType.STRING), e a ordem alfabética não é a de gravidade
+    @CamposDeOrdenacao({"medidaEm", "nivelCm", "chuvaMmH", "id"})
+    @GetMapping("/{id}/leituras")
+    @SecurityRequirements
+    @Operation(summary = "Histórico de leituras da estação", description = "Público, paginado; por padrão da mais recente para a mais antiga.")
+    @ApiResponse(responseCode = "200", description = "Página de leituras")
+    @ApiResponse(responseCode = "404", description = "Estação não existe")
+    public ResponseEntity<PagedModel<EntityModel<LeituraResponse>>> listarLeituras(
+            @PathVariable @Positive Long id,
+            @ParameterObject @PageableDefault(size = 20, sort = "medidaEm", direction = Sort.Direction.DESC) Pageable pageable) {
+        return ResponseEntity.ok(RespostaHal.pagina(leituraService.listar(id, pageable), pagedLeituraAssembler, leituraAssembler, LeituraResponse.class));
+    }
+
+    @PostMapping("/{id}/leituras")
+    @PreAuthorize("hasAnyRole('AGENTE', 'ADMIN')")
+    @Operation(summary = "Registra uma leitura da estação",
+            description = """
+                    AGENTE ou ADMIN (é a rota que a ponte MQTT chama). O servidor classifica o risco pela régua da estação,
+                    sobe um nível com chuva de 50 mm/h ou mais, recalcula o nível da área e, se o risco for ALERTA ou pior,
+                    abre um alerta automático. O corpo da resposta traz o alertaGeradoId quando isso acontece.
+                    Leitura mais antiga que a última da estação, ou medida há mais de 1 hora, entra só no histórico.""")
+    @ApiResponse(responseCode = "201", description = "Leitura registrada. O Location aponta para a leitura, e o link alerta aparece quando um alerta automático nasce")
+    @ApiResponse(responseCode = "400", description = "Valores fora da faixa ou data no futuro")
+    @ApiResponse(responseCode = "403", description = "Usuário logado é CIDADAO")
+    @ApiResponse(responseCode = "404", description = "Estação não existe")
+    @ApiResponse(responseCode = "409", description = "Estação em MANUTENCAO ou INATIVA, ou leitura repetida: a estação já tem a mesma leitura (mesmo medidaEm e mesmas medidas), reenviada pela ponte MQTT")
+    public ResponseEntity<EntityModel<LeituraRegistradaResponse>> registrarLeitura(@PathVariable @Positive Long id,
+                                                                                   @RequestBody @Valid LeituraRequest request) {
+        EntityModel<LeituraRegistradaResponse> model = leituraAssembler.toModel(leituraService.registrar(id, request));
+        return ResponseEntity.created(model.getRequiredLink(IanaLinkRelations.SELF).toUri()).body(model);
+    }
+
+    @PostMapping("/{id}/leituras/lote")
+    @PreAuthorize("hasAnyRole('AGENTE', 'ADMIN')")
+    @Operation(summary = "Registra em lote as leituras guardadas durante a queda de internet",
+            description = """
+                    AGENTE ou ADMIN. De 1 a 100 leituras, todas com medidaEm, processadas em ordem cronológica com as mesmas
+                    regras de uma leitura só: classificação, nível da área e alerta automático. Tudo ou nada: se uma leitura
+                    falhar, nenhuma é gravada. O Location aponta para o histórico de leituras da estação.""")
+    @ApiResponse(responseCode = "201", description = "Lote registrado, com a quantidade, o nível final da área e os alertas gerados")
+    @ApiResponse(responseCode = "400", description = "Lista vazia, mais de 100 leituras, item nulo, leitura sem medidaEm ou com valores fora da faixa")
+    @ApiResponse(responseCode = "401", description = "Sem token ou token inválido")
+    @ApiResponse(responseCode = "403", description = "Usuário logado é CIDADAO")
+    @ApiResponse(responseCode = "404", description = "Estação não existe")
+    @ApiResponse(responseCode = "409", description = "Estação em MANUTENCAO ou INATIVA, ou leitura repetida (já gravada na estação ou "
+            + "repetida dentro do lote): a mensagem diz o índice do item, como leituras[2], e o medidaEm, e nenhuma leitura do lote é gravada")
+    public ResponseEntity<EntityModel<LoteLeiturasResponse>> registrarLote(@PathVariable @Positive Long id,
+                                                                           @RequestBody @Valid LoteLeiturasRequest request) {
+        LoteLeiturasResponse resposta = leituraService.registrarLote(id, request);
+        Link historico = linkTo(methodOn(EstacaoController.class).listarLeituras(id, null)).withRel("leituras").expand();
+        EntityModel<LoteLeiturasResponse> model = EntityModel.of(resposta,
+                historico,
+                linkTo(methodOn(EstacaoController.class).buscarPorId(id)).withRel("estacao"),
+                linkTo(methodOn(AreaController.class).buscarPorId(resposta.areaId())).withRel("area"));
+        return ResponseEntity.created(historico.toUri()).body(model);
+    }
+
+    @GetMapping("/{id}/leituras/{leituraId}")
+    @SecurityRequirements
+    @Operation(summary = "Busca uma leitura da estação", description = "Público. É o endereço do Location devolvido no registro da leitura.")
+    @ApiResponse(responseCode = "200", description = "Leitura encontrada")
+    @ApiResponse(responseCode = "400", description = "Id menor ou igual a zero")
+    @ApiResponse(responseCode = "404", description = "Estação não existe, ou a leitura não existe nesta estação")
+    public ResponseEntity<EntityModel<LeituraResponse>> buscarLeitura(@PathVariable @Positive Long id,
+                                                                      @PathVariable @Positive Long leituraId) {
+        return ResponseEntity.ok(leituraAssembler.toModel(leituraService.buscarPorId(id, leituraId)));
+    }
+
+    @GetMapping("/{id}/leituras/estatisticas")
+    @SecurityRequirements
+    @Operation(summary = "Estatística das leituras numa janela de horas",
+            description = "JPQL com count, avg, min e max calculados no banco. Os links levam à estação e ao histórico de leituras.")
+    @ApiResponse(responseCode = "200", description = "Estatística da janela pedida")
+    @ApiResponse(responseCode = "400", description = "Janela fora de 1 a 720 horas")
+    @ApiResponse(responseCode = "404", description = "Estação não existe")
+    public ResponseEntity<EntityModel<EstatisticaLeiturasResponse>> estatisticas(
+            @PathVariable @Positive Long id,
+            @Parameter(description = "Janela em horas (1 a 720)", example = "24")
+            @RequestParam(defaultValue = "24") @Positive @Max(720) Integer horas) {
+        return ResponseEntity.ok(leituraAssembler.toModel(id, horas, leituraService.estatisticas(id, horas)));
+    }
+}

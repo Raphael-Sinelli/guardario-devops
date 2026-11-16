@@ -1,0 +1,160 @@
+package br.com.fiap.guardario.service;
+
+import br.com.fiap.guardario.exceptions.CampoInvalidoException;
+import br.com.fiap.guardario.dto.AbrigoRequest;
+import br.com.fiap.guardario.dto.AbrigoResponse;
+import br.com.fiap.guardario.exceptions.RegraNegocioException;
+import br.com.fiap.guardario.exceptions.ResourceNotFoundException;
+import br.com.fiap.guardario.mapper.AbrigoMapper;
+import br.com.fiap.guardario.model.Abrigo;
+import br.com.fiap.guardario.model.AreaRisco;
+import br.com.fiap.guardario.model.StatusAbrigo;
+import br.com.fiap.guardario.repository.AbrigoRepository;
+import br.com.fiap.guardario.repository.AreaRiscoRepository;
+import br.com.fiap.guardario.specification.AbrigoSpecification;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+
+/*
+ * Toda escrita que pode mudar a lista de abrigos com vaga limpa o cache "abrigosDisponiveis".
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class AbrigoServiceImpl implements AbrigoService {
+
+    private final AbrigoRepository abrigoRepository;
+    private final AreaRiscoRepository areaRepository;
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AbrigoResponse> listar(Long areaId, Boolean aceitaPets, Boolean acessivelPcd, Boolean comVagas,
+                                       StatusAbrigo status, Pageable pageable) {
+        var filtro = AbrigoSpecification.comFiltros(areaId, aceitaPets, acessivelPcd, comVagas, status);
+        return abrigoRepository.findAll(filtro, pageable).map(AbrigoMapper::toResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "abrigosDisponiveis")
+    public List<AbrigoResponse> disponiveis() {
+        log.info("Cache 'abrigosDisponiveis' vazio: consultando o banco");
+        return abrigoRepository.findByStatusOrderByNomeAsc(StatusAbrigo.ABERTO).stream()
+                .map(AbrigoMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AbrigoResponse buscarPorId(Long id) {
+        return AbrigoMapper.toResponse(buscarEntidade(id));
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "abrigosDisponiveis", allEntries = true)
+    public AbrigoResponse criar(AbrigoRequest request) {
+        Abrigo abrigo = new Abrigo();
+        preencher(abrigo, request);
+        abrigo.informarOcupacao(request.ocupacao() != null ? request.ocupacao() : 0);
+        abrigo.atualizarStatus(); // pode já nascer LOTADO se a ocupação informada for igual à capacidade
+        return AbrigoMapper.toResponse(abrigoRepository.save(abrigo));
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "abrigosDisponiveis", allEntries = true)
+    public AbrigoResponse atualizar(Long id, AbrigoRequest request) {
+        Abrigo abrigo = buscarEntidade(id);
+        preencher(abrigo, request);
+        // sem ocupacao no corpo, fica a atual: as pessoas que já estão no abrigo não podem sumir num PUT. O abrigo
+        // fechado não aumenta a ocupação nem pelo PUT (RN05); a regra fica no informarOcupacao da entidade
+        if (request.ocupacao() != null) {
+            abrigo.informarOcupacao(request.ocupacao());
+        }
+        if (abrigo.getOcupacao() > abrigo.getCapacidade()) {
+            throw new RegraNegocioException("A capacidade não pode ficar abaixo das " + abrigo.getOcupacao()
+                    + " pessoas que já estão no abrigo");
+        }
+        abrigo.atualizarStatus();
+        return AbrigoMapper.toResponse(abrigo);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "abrigosDisponiveis", allEntries = true)
+    public AbrigoResponse alterarStatus(Long id, StatusAbrigo status) {
+        Abrigo abrigo = buscarEntidade(id);
+        switch (status) {
+            case FECHADO -> abrigo.fechar();
+            case ABERTO -> abrigo.reabrir();
+            case LOTADO -> throw new CampoInvalidoException("status", "LOTADO é definido pelo sistema quando a ocupação chega à capacidade");
+        }
+        return AbrigoMapper.toResponse(abrigo);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "abrigosDisponiveis", allEntries = true)
+    public AbrigoResponse registrarEntrada(Long id, int pessoas) {
+        Abrigo abrigo = buscarComTrava(id);
+        abrigo.registrarEntrada(pessoas);
+        return AbrigoMapper.toResponse(abrigo);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "abrigosDisponiveis", allEntries = true)
+    public AbrigoResponse registrarSaida(Long id, int pessoas) {
+        Abrigo abrigo = buscarComTrava(id);
+        abrigo.registrarSaida(pessoas);
+        return AbrigoMapper.toResponse(abrigo);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(cacheNames = "abrigosDisponiveis", allEntries = true)
+    public void excluir(Long id) {
+        Abrigo abrigo = buscarEntidade(id);
+        // com gente dentro, as pessoas sumiriam da contagem de quem está abrigado: primeiro registra a saída delas
+        if (abrigo.getOcupacao() > 0) {
+            throw new RegraNegocioException("O abrigo ainda tem " + abrigo.getOcupacao()
+                    + (abrigo.getOcupacao() == 1 ? " pessoa" : " pessoas") + ": registre a saída delas antes de excluir");
+        }
+        abrigoRepository.delete(abrigo);
+    }
+
+    // trava a linha do abrigo até o fim da transação (SELECT ... FOR UPDATE): as entradas e saídas simultâneas
+    // esperam a vez em vez de falhar no @Version, e o agente não precisa repetir o registro durante a cheia
+    private Abrigo buscarComTrava(Long id) {
+        return abrigoRepository.buscarComTrava(id)
+                .orElseThrow(() -> new ResourceNotFoundException("abrigo", id));
+    }
+
+    private Abrigo buscarEntidade(Long id) {
+        return abrigoRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("abrigo", id));
+    }
+
+    private void preencher(Abrigo abrigo, AbrigoRequest request) {
+        AreaRisco area = areaRepository.findById(request.areaId())
+                .orElseThrow(() -> new ResourceNotFoundException("área", request.areaId()));
+        abrigo.setNome(request.nome().trim());
+        abrigo.setEndereco(request.endereco().trim());
+        abrigo.setCapacidade(request.capacidade());
+        abrigo.setAceitaPets(request.aceitaPets());
+        abrigo.setAcessivelPcd(request.acessivelPcd());
+        abrigo.setTelefone(request.telefone());
+        abrigo.setLatitude(request.latitude());
+        abrigo.setLongitude(request.longitude());
+        abrigo.setArea(area);
+    }
+}

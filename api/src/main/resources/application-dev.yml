@@ -1,0 +1,34 @@
+# perfil de desenvolvimento: H2 em memória, recriado a cada subida
+spring:
+  datasource:
+    url: jdbc:h2:mem:guardario;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true # mostra o SQL no console: útil para ver o cache funcionando (segunda chamada sem SELECT)
+    properties:
+      hibernate:
+        format_sql: true
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  mvc:
+    # o DevTools liga isto no dev e solta um WARN "Resolved [...]" a cada 400, 404 ou 409 que a API trata de propósito;
+    # o GlobalExceptionHandler já responde esses erros, e o erro inesperado (500) continua no log, com o stack trace
+    log-resolved-exception: false
+
+app:
+  jwt:
+    # sem JWT_SECRET, o dev gera uma chave temporária a cada subida; aqui isso é o esperado e sai no log como INFO
+    chave-temporaria-esperada: true
+
+# no dev a documentação fica ligada de propósito (no prod ela vem desligada); deixar isso escrito também evita
+# o aviso do springdoc de que ela está ligada só por padrão
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

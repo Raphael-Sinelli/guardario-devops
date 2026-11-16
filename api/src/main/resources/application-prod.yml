@@ -1,0 +1,31 @@
+# perfil de produção (usado na entrega de DevOps): PostgreSQL com credenciais por variável de ambiente
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/guardario}
+    username: ${DB_USERNAME:guardario}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+app:
+  seed:
+    enabled: ${SEED_ENABLED:false}
+  jwt:
+    # em produção a chave vem sempre de JWT_SECRET: sem ela, a aplicação não sobe
+    chave-obrigatoria: true
+
+logging:
+  level:
+    # num PostgreSQL vazio, o ddl-auto: update remove as restrições únicas antes de criá-las, e o banco responde com o
+    # aviso "constraint ... does not exist, skipping" (SQLState 00000, que não é erro). Fica em ERROR, como o
+    # org.hibernate.orm.jdbc.error do application.yml, para a primeira subida não sair com WARN
+    org.hibernate.orm.jdbc.warn: ERROR
+
+# documentação desligada em produção (recomendação da semana 9); SWAGGER_ENABLED=true liga para uma demonstração
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
