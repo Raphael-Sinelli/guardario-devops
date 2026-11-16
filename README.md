@@ -7,7 +7,7 @@ O GuardaRio é um alerta comunitário de enchentes: estações medem o nível do
 | | |
 |---|---|
 | Aplicação no ar | http://130.131.61.173:8080/swagger-ui.html |
-| Vídeo da demonstração | _link do YouTube (não listado)_ |
+| Vídeo da demonstração | **A PREENCHER** (link do YouTube, não listado) |
 | Código da API | pasta [`api/`](api/), a mesma API da entrega de Java Advanced ([guardario-api](https://github.com/Raphael-Sinelli/guardario-api)) |
 
 ## Integrantes
@@ -182,9 +182,9 @@ docker compose up -d --build     # constrói a imagem da API e sobe os dois cont
 docker compose ps
 ```
 
-O `gerar-env.sh` mostra o e-mail e a senha do ADMIN. Anote: é com esse usuário que se faz o CRUD. Quem preferir preencher à mão usa `cp .env.example .env` e edita os quatro campos vazios.
+O `gerar-env.sh` mostra o e-mail e a senha do ADMIN. Anote: é com esse usuário que se faz o CRUD. Quem preferir preencher à mão usa `cp .env.example .env` e edita os três campos vazios (`POSTGRES_PASSWORD`, `JWT_SECRET` e `ADMIN_PASSWORD`).
 
-A primeira subida leva alguns minutos, porque o Maven baixa as dependências dentro do build. Quando os dois containers aparecem como `healthy`, a API está pronta:
+Na primeira subida o Docker baixa as imagens base e o Maven baixa as dependências dentro do build. Na nossa VM (`Standard_B2als_v2`) isso levou 71 segundos. Quando os dois containers aparecem como `healthy`, a API está pronta:
 
 ```bash
 curl http://IP-PUBLICO:8080/actuator/health
