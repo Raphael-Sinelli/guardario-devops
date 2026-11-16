@@ -1,0 +1,15 @@
+# Segredos: só o .env.example vai para o Git
+.env
+*.pem
+id_rsa*
+
+# Saída de build e dados locais
+target/
+*.log
+
+# IDEs e sistema
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
