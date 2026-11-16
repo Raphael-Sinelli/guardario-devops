@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200" width="1200" height="1200" font-family="Segoe UI, Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="seta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1F2937"/>
+    </marker>
+    <marker id="setaAzul" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0078D4"/>
+    </marker>
+    <marker id="setaCinza" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#6B7280"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="1200" fill="#FFFFFF"/>
+
+  <!-- Título -->
+  <text x="30" y="42" font-size="24" font-weight="700" fill="#111827">GuardaRio · Arquitetura macro da solução em nuvem</text>
+  <text x="30" y="68" font-size="15" fill="#4B5563">API Java (Spring Boot) e PostgreSQL em containers Docker numa VM do Microsoft Azure criada por Azure CLI</text>
+
+  <!-- ===================== Fora da Azure ===================== -->
+  <g font-size="15" fill="#111827">
+    <rect x="30" y="95" width="210" height="88" rx="10" fill="#F9FAFB" stroke="#6B7280" stroke-width="1.5"/>
+    <text x="135" y="125" text-anchor="middle" font-weight="700" font-size="16">App GuardaRio</text>
+    <text x="135" y="147" text-anchor="middle">Flutter · morador</text>
+    <text x="135" y="168" text-anchor="middle" fill="#4B5563">alertas, abrigos, relatos</text>
+
+    <rect x="255" y="95" width="210" height="88" rx="10" fill="#F9FAFB" stroke="#6B7280" stroke-width="1.5"/>
+    <text x="360" y="125" text-anchor="middle" font-weight="700" font-size="16">Swagger UI / curl</text>
+    <text x="360" y="147" text-anchor="middle">agente da Defesa Civil</text>
+    <text x="360" y="168" text-anchor="middle" fill="#4B5563">CRUD de áreas e abrigos</text>
+
+    <rect x="480" y="95" width="210" height="88" rx="10" fill="#F9FAFB" stroke="#6B7280" stroke-width="1.5"/>
+    <text x="585" y="125" text-anchor="middle" font-weight="700" font-size="16">Ponte MQTT</text>
+    <text x="585" y="147" text-anchor="middle">estações IoT (ESP32)</text>
+    <text x="585" y="168" text-anchor="middle" fill="#4B5563">POST das leituras do rio</text>
+
+    <rect x="735" y="95" width="210" height="88" rx="10" fill="#EFF6FF" stroke="#0078D4" stroke-width="1.5"/>
+    <text x="840" y="125" text-anchor="middle" font-weight="700" font-size="16">Equipe · Azure CLI</text>
+    <text x="840" y="147" text-anchor="middle">scripts/provisionar-vm.sh</text>
+    <text x="840" y="168" text-anchor="middle" fill="#4B5563">e acesso SSH por chave</text>
+
+    <rect x="960" y="95" width="210" height="88" rx="10" fill="#F9FAFB" stroke="#111827" stroke-width="1.5"/>
+    <text x="1065" y="125" text-anchor="middle" font-weight="700" font-size="16">GitHub (público)</text>
+    <text x="1065" y="147" text-anchor="middle">guardario-devops</text>
+    <text x="1065" y="168" text-anchor="middle" fill="#4B5563">código, Dockerfile, compose</text>
+  </g>
+
+  <!-- Internet: os clientes e o SSH chegam pelo IP público -->
+  <g stroke="#1F2937" stroke-width="2" fill="none">
+    <line x1="135" y1="183" x2="135" y2="218"/>
+    <line x1="360" y1="183" x2="360" y2="218"/>
+    <line x1="585" y1="183" x2="585" y2="218"/>
+    <line x1="790" y1="183" x2="790" y2="218"/>
+    <line x1="135" y1="218" x2="790" y2="218"/>
+    <line x1="240" y1="218" x2="240" y2="298" marker-end="url(#seta)"/>
+  </g>
+  <g font-size="14" fill="#111827">
+    <rect x="394" y="207" width="150" height="22" fill="#FFFFFF"/>
+    <text x="469" y="223" text-anchor="middle" font-weight="700">Internet</text>
+    <text x="145" y="205" fill="#374151">HTTP 8080</text>
+    <text x="370" y="205" fill="#374151">HTTP 8080</text>
+    <text x="595" y="205" fill="#374151">HTTP 8080</text>
+    <text x="712" y="205" fill="#374151">SSH 22</text>
+  </g>
+
+  <!-- Azure CLI: gerenciamento (cria os recursos) -->
+  <line x1="895" y1="183" x2="895" y2="248" stroke="#0078D4" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#setaAzul)"/>
+  <text x="905" y="213" font-size="14" fill="#0078D4">az group create</text>
+  <text x="905" y="231" font-size="14" fill="#0078D4">az vm create · open-port</text>
+
+  <!-- ===================== Azure ===================== -->
+  <rect x="30" y="250" width="1140" height="900" rx="14" fill="#F3F9FE" stroke="#0078D4" stroke-width="2.5"/>
+  <text x="50" y="280" font-size="18" font-weight="700" fill="#0078D4">Microsoft Azure · região brazilsouth · grupo de recursos rg-guardario</text>
+
+  <!-- IP público -->
+  <rect x="60" y="300" width="360" height="84" rx="10" fill="#FFFFFF" stroke="#0078D4" stroke-width="1.5"/>
+  <text x="240" y="328" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">pip-guardario · IP público</text>
+  <text x="240" y="350" text-anchor="middle" font-size="15" fill="#111827">fixo (SKU Standard): não muda ao religar a VM</text>
+  <text x="240" y="371" text-anchor="middle" font-size="15" fill="#4B5563">http://IP-PÚBLICO:8080</text>
+
+  <!-- NSG -->
+  <rect x="470" y="300" width="490" height="84" rx="10" fill="#FFF7ED" stroke="#C2410C" stroke-width="1.5"/>
+  <text x="715" y="328" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">nsg-guardario · firewall da VM</text>
+  <text x="715" y="350" text-anchor="middle" font-size="15" fill="#111827">entrada liberada: TCP 22 (SSH) e TCP 8080 (API)</text>
+  <text x="715" y="371" text-anchor="middle" font-size="15" fill="#4B5563">todo o resto é negado, inclusive a 5432 do banco</text>
+
+  <line x1="420" y1="342" x2="468" y2="342" stroke="#1F2937" stroke-width="2" marker-end="url(#seta)"/>
+
+  <!-- VNet -->
+  <rect x="55" y="420" width="1090" height="712" rx="12" fill="#F0FDF9" stroke="#0F766E" stroke-width="1.8"/>
+  <text x="75" y="447" font-size="15" font-weight="700" fill="#0F766E">vnet-guardario 10.0.0.0/16 · sub-rede snet-guardario 10.0.0.0/24</text>
+
+  <!-- VM -->
+  <rect x="80" y="462" width="1040" height="652" rx="12" fill="#FFFFFF" stroke="#1F2937" stroke-width="2"/>
+  <path d="M92,462 h1016 a12,12 0 0 1 12,12 v52 h-1040 v-52 a12,12 0 0 1 12,-12 z" fill="#1F2937"/>
+  <text x="100" y="488" font-size="17" font-weight="700" fill="#FFFFFF">VM vm-guardario · Ubuntu Server 24.04 LTS · Standard_B2s (2 vCPU, 4 GB)</text>
+  <text x="100" y="512" font-size="15" fill="#E5E7EB">Docker Engine + Docker Compose (projeto guardario) · usuário azureuser, login só por chave SSH</text>
+
+  <!-- Rede Docker -->
+  <rect x="105" y="550" width="990" height="352" rx="12" fill="#F5F8FF" stroke="#1D63ED" stroke-width="1.8" stroke-dasharray="9 6"/>
+  <text x="125" y="576" font-size="15" font-weight="700" fill="#1D63ED">rede Docker bridge: guardario-net (os containers se acham pelo nome do serviço)</text>
+
+  <!-- Container do banco -->
+  <rect x="130" y="592" width="365" height="292" rx="10" fill="#EAF4FB" stroke="#336791" stroke-width="2"/>
+  <text x="148" y="620" font-size="17" font-weight="700" fill="#111827">container guardario-db</text>
+  <g font-size="15" fill="#111827">
+    <text x="148" y="646">PostgreSQL 16</text>
+    <text x="148" y="670">imagem postgres:16-alpine</text>
+    <text x="148" y="694">USER postgres (uid 70)</text>
+    <text x="148" y="718">ENV POSTGRES_DB, POSTGRES_USER,</text>
+    <text x="148" y="742">POSTGRES_PASSWORD (vêm do .env)</text>
+    <text x="148" y="766">porta 127.0.0.1:5432:5432 (só a VM)</text>
+    <text x="148" y="790">healthcheck pg_isready</text>
+    <text x="148" y="814">restart: unless-stopped</text>
+    <text x="148" y="838" fill="#4B5563">8 tabelas, entre elas:</text>
+    <text x="148" y="862" fill="#4B5563">area_risco 1:N abrigo (FK area_id)</text>
+  </g>
+
+  <!-- Container da API -->
+  <rect x="680" y="592" width="390" height="292" rx="10" fill="#E8F0FE" stroke="#1D63ED" stroke-width="2"/>
+  <text x="698" y="620" font-size="17" font-weight="700" fill="#111827">container guardario-api</text>
+  <g font-size="15" fill="#111827">
+    <text x="698" y="646">API REST Java 21 · Spring Boot 4 · perfil prod</text>
+    <text x="698" y="670">imagem guardario-api:1.0.0</text>
+    <text x="698" y="694">Dockerfile multi-stage · JRE 21 Alpine</text>
+    <text x="698" y="718">USER guardario (uid 1001) · WORKDIR /app</text>
+    <text x="698" y="742">ENV DB_URL, DB_PASSWORD, JWT_SECRET, ADMIN_*</text>
+    <text x="698" y="766">porta 8080:8080 (EXPOSE 8080)</text>
+    <text x="698" y="790">healthcheck GET /actuator/health</text>
+    <text x="698" y="814">logs na saída padrão (docker compose logs)</text>
+    <text x="698" y="838">restart: unless-stopped</text>
+    <text x="698" y="862" fill="#4B5563">CRUD de áreas, abrigos, estações, alertas...</text>
+  </g>
+
+  <!-- API -> banco -->
+  <line x1="680" y1="720" x2="497" y2="720" stroke="#1F2937" stroke-width="2.5" marker-end="url(#seta)"/>
+  <g font-size="15" fill="#111827" text-anchor="middle">
+    <text x="588" y="690" font-weight="700">JDBC</text>
+    <text x="588" y="710">db:5432</text>
+    <text x="588" y="744" fill="#4B5563" font-size="14">DNS interno do Docker</text>
+    <text x="588" y="772" fill="#4B5563" font-size="14">depends_on:</text>
+    <text x="588" y="790" fill="#4B5563" font-size="14">service_healthy</text>
+  </g>
+
+  <!-- NSG -> API (8080) e NSG -> VM (22) -->
+  <line x1="800" y1="384" x2="800" y2="590" stroke="#1F2937" stroke-width="2.5" marker-end="url(#seta)"/>
+  <text x="790" y="410" text-anchor="end" font-size="14" font-weight="700" fill="#111827">TCP 8080 → API</text>
+  <line x1="900" y1="384" x2="900" y2="460" stroke="#1F2937" stroke-width="2" marker-end="url(#seta)"/>
+  <text x="910" y="410" font-size="14" font-weight="700" fill="#111827">TCP 22 → SSH</text>
+
+  <!-- GitHub -> VM (git clone) -->
+  <path d="M1065,183 V460" stroke="#6B7280" stroke-width="2" stroke-dasharray="7 5" fill="none" marker-end="url(#setaCinza)"/>
+  <rect x="1073" y="395" width="80" height="22" fill="#F3F9FE"/>
+  <text x="1075" y="411" font-size="14" font-weight="700" fill="#374151">git clone</text>
+
+  <!-- Compose + .env -->
+  <rect x="680" y="934" width="390" height="160" rx="10" fill="#F9FAFB" stroke="#6B7280" stroke-width="1.5"/>
+  <text x="698" y="962" font-size="17" font-weight="700" fill="#111827">docker-compose.yml + .env</text>
+  <g font-size="15" fill="#111827">
+    <text x="698" y="988">docker compose up -d --build</text>
+    <text x="698" y="1012">define serviços api e db, rede, volume,</text>
+    <text x="698" y="1036">portas, variáveis e a dependência entre eles</text>
+    <text x="698" y="1060" fill="#4B5563">.env com as senhas: gerado na VM,</text>
+    <text x="698" y="1082" fill="#4B5563">fora do Git (scripts/gerar-env.sh)</text>
+  </g>
+  <line x1="875" y1="934" x2="875" y2="904" stroke="#6B7280" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#setaCinza)"/>
+
+  <!-- Volume nomeado (cilindro) -->
+  <g>
+    <path d="M194,960 v96 a118,22 0 0 0 236,0 v-96" fill="#FFF4E0" stroke="#B45309" stroke-width="2"/>
+    <ellipse cx="312" cy="960" rx="118" ry="22" fill="#FFE8BF" stroke="#B45309" stroke-width="2"/>
+    <text x="312" y="1010" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">volume nomeado</text>
+    <text x="312" y="1032" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">guardario-pgdata</text>
+    <text x="312" y="1054" text-anchor="middle" font-size="14" fill="#4B5563">sobrevive ao compose down</text>
+  </g>
+  <line x1="312" y1="886" x2="312" y2="936" stroke="#1F2937" stroke-width="2.5" marker-start="url(#seta)" marker-end="url(#seta)"/>
+  <text x="324" y="924" font-size="14" fill="#111827">/var/lib/postgresql/data</text>
+
+  <!-- Legenda -->
+  <g font-size="14" fill="#374151">
+    <line x1="30" y1="1177" x2="80" y2="1177" stroke="#1F2937" stroke-width="2.5" marker-end="url(#seta)"/>
+    <text x="90" y="1182">tráfego da aplicação</text>
+    <line x1="260" y1="1177" x2="310" y2="1177" stroke="#0078D4" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#setaAzul)"/>
+    <text x="320" y="1182">provisionamento por Azure CLI</text>
+    <line x1="560" y1="1177" x2="610" y2="1177" stroke="#6B7280" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#setaCinza)"/>
+    <text x="620" y="1182">implantação (clone do repositório e Compose)</text>
+  </g>
+</svg>
