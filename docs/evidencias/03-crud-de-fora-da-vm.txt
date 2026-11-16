@@ -1,0 +1,41 @@
+# Executado de fora da VM (computador do grupo, Windows + Git Bash, pela internet), em 2026-11-16T16:47:51Z
+=== GuardaRio · CRUD em http://130.131.61.173:8080 ===
+Esperando a API responder
+
+>> GET /actuator/health  ->  HTTP 200 (esperado 200)
+   resposta: {"groups":["liveness","readiness"],"status":"UP"}
+
+--- Login do ADMIN (as escritas exigem token JWT) ---
+
+>> POST /api/auth/login  ->  HTTP 200 (esperado 200)
+   token JWT recebido (192 caracteres), usado no cabeçalho Authorization: Bearer
+
+--- CREATE ---
+
+>> POST /api/areas  ->  HTTP 201 (esperado 201)
+   enviado:  {"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000,"latitude":-23.4985,"longitude":-46.4290}
+   resposta: {"id":2,"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000,"latitude":-23.4985,"longitude":-46.429,"nivelAtual":"NORMAL","orientacao":"Sem risco no momento."}
+
+>> POST /api/abrigos  ->  HTTP 201 (esperado 201)
+   enviado:  {"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"ocupacao":0,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","areaId":2}
+   resposta: {"id":2,"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"ocupacao":0,"vagas":120,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","latitude":null,"longitude":null,"status":"ABERTO","areaId":2}
+
+--- READ ---
+
+>> GET /api/areas/2  ->  HTTP 200 (esperado 200)
+   resposta: {"id":2,"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000,"latitude":-23.4985,"longitude":-46.429,"nivelAtual":"NORMAL","orientacao":"Sem risco no momento."}
+
+>> GET /api/abrigos/2  ->  HTTP 200 (esperado 200)
+   resposta: {"id":2,"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"ocupacao":0,"vagas":120,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","latitude":null,"longitude":null,"status":"ABERTO","areaId":2}
+
+--- UPDATE ---
+
+>> PUT /api/areas/2  ->  HTTP 200 (esperado 200)
+   enviado:  {"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":52000,"latitude":-23.4985,"longitude":-46.4290}
+   resposta: {"id":2,"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":52000,"latitude":-23.4985,"longitude":-46.429,"nivelAtual":"NORMAL","orientacao":"Sem risco no momento."}
+
+>> PUT /api/abrigos/2  ->  HTTP 200 (esperado 200)
+   enviado:  {"nome":"EMEF Jardim Pantanal (ginásio)","endereco":"Rua Capachós, 120","capacidade":150,"ocupacao":0,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","areaId":2}
+   resposta: {"id":2,"nome":"EMEF Jardim Pantanal (ginásio)","endereco":"Rua Capachós, 120","capacidade":150,"ocupacao":0,"vagas":150,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","latitude":null,"longitude":null,"status":"ABERTO","areaId":2}
+
+=== C, R e U concluídos. Área 2 e abrigo 2 ficaram no banco (--manter). ===

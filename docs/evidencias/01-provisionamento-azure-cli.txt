@@ -1,0 +1,31 @@
+==> 1/5 Conta Azure
+Assinatura
+------------------------------------------
+rm568346 (assinatura da FIAP)
+==> 2/5 Grupo de recursos rg-guardario em northcentralus
+==> 3/5 VM vm-guardario (Ubuntu2404, Standard_B2als_v2) com rede, NSG e IP público
+==> 4/5 Porta 8080 liberada no NSG (entrada da API)
+==> 5/5 Resultado
+Vm            Estado      Tamanho            Regiao          IpPublico       IpPrivado
+------------  ----------  -----------------  --------------  --------------  -----------
+vm-guardario  VM running  Standard_B2als_v2  northcentralus  130.131.61.173  10.0.0.4
+Regra              Prioridade    Porta    Acesso    Direcao
+-----------------  ------------  -------  --------  ---------
+default-allow-ssh  1000          22       Allow     Inbound
+open-port-8080     1010          8080     Allow     Inbound
+
+VM pronta. IP público: 130.131.61.173
+
+Próximos passos (dentro da VM):
+  ssh azureuser@130.131.61.173
+  git clone https://github.com/Raphael-Sinelli/guardario-devops.git
+  cd guardario-devops
+  ./scripts/instalar-docker.sh
+
+Depois do "docker compose up -d --build":
+  API:     http://130.131.61.173:8080/actuator/health
+  Swagger: http://130.131.61.173:8080/swagger-ui.html
+
+Para não gastar crédito com a VM parada:
+  az vm deallocate --resource-group rg-guardario --name vm-guardario
+  az vm start      --resource-group rg-guardario --name vm-guardario

@@ -70,13 +70,13 @@
 
   <!-- ===================== Azure ===================== -->
   <rect x="30" y="250" width="1140" height="900" rx="14" fill="#F3F9FE" stroke="#0078D4" stroke-width="2.5"/>
-  <text x="50" y="280" font-size="18" font-weight="700" fill="#0078D4">Microsoft Azure · região brazilsouth · grupo de recursos rg-guardario</text>
+  <text x="50" y="280" font-size="18" font-weight="700" fill="#0078D4">Microsoft Azure · região northcentralus · grupo de recursos rg-guardario</text>
 
   <!-- IP público -->
   <rect x="60" y="300" width="360" height="84" rx="10" fill="#FFFFFF" stroke="#0078D4" stroke-width="1.5"/>
   <text x="240" y="328" text-anchor="middle" font-size="16" font-weight="700" fill="#111827">pip-guardario · IP público</text>
   <text x="240" y="350" text-anchor="middle" font-size="15" fill="#111827">fixo (SKU Standard): não muda ao religar a VM</text>
-  <text x="240" y="371" text-anchor="middle" font-size="15" fill="#4B5563">http://IP-PÚBLICO:8080</text>
+  <text x="240" y="371" text-anchor="middle" font-size="15" fill="#4B5563">http://130.131.61.173:8080</text>
 
   <!-- NSG -->
   <rect x="470" y="300" width="490" height="84" rx="10" fill="#FFF7ED" stroke="#C2410C" stroke-width="1.5"/>
@@ -93,7 +93,7 @@
   <!-- VM -->
   <rect x="80" y="462" width="1040" height="652" rx="12" fill="#FFFFFF" stroke="#1F2937" stroke-width="2"/>
   <path d="M92,462 h1016 a12,12 0 0 1 12,12 v52 h-1040 v-52 a12,12 0 0 1 12,-12 z" fill="#1F2937"/>
-  <text x="100" y="488" font-size="17" font-weight="700" fill="#FFFFFF">VM vm-guardario · Ubuntu Server 24.04 LTS · Standard_B2s (2 vCPU, 4 GB)</text>
+  <text x="100" y="488" font-size="17" font-weight="700" fill="#FFFFFF">VM vm-guardario · Ubuntu Server 24.04 LTS · Standard_B2als_v2 (2 vCPU, 4 GB)</text>
   <text x="100" y="512" font-size="15" fill="#E5E7EB">Docker Engine + Docker Compose (projeto guardario) · usuário azureuser, login só por chave SSH</text>
 
   <!-- Rede Docker -->

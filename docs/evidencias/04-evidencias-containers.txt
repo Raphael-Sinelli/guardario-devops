@@ -1,0 +1,213 @@
+5e2332a fix: CRUD envia o corpo em UTF-8 pela entrada padrão e evidências testam a rede com getent e nc
+
+
+########## 1 · VM e versões ##########
+
+$ hostname
+vm-guardario
+
+$ uname -sr
+Linux 7.0.0-1017-azure
+
+$ docker --version
+Docker version 29.10.0, build fdd4b8e
+
+$ docker compose version
+Docker Compose version v5.7.1
+
+
+########## 2 · Containers em execução, em background ##########
+
+$ docker compose ps
+NAME            IMAGE                 COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+guardario-api   guardario-api:1.0.0   "java -jar app.jar"      api       58 seconds ago   Up 51 seconds (healthy)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+guardario-db    postgres:16-alpine    "docker-entrypoint.s…"   db        58 seconds ago   Up 57 seconds (healthy)   127.0.0.1:5432->5432/tcp
+
+
+########## 3 · Logs dos containers ##########
+
+$ docker compose logs --tail=25 api
+guardario-api  | 2026-11-16T16:49:01.489Z  INFO 1 --- [guardario-api] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+guardario-api  | 2026-11-16T16:49:01.789Z  INFO 1 --- [guardario-api] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@15c96f24
+guardario-api  | 2026-11-16T16:49:01.792Z  INFO 1 --- [guardario-api] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+guardario-api  | 2026-11-16T16:49:01.884Z  INFO 1 --- [guardario-api] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+guardario-api  | 	Database JDBC URL [jdbc:postgresql://db:5432/guardario]
+guardario-api  | 	Database driver: PostgreSQL JDBC Driver
+guardario-api  | 	Database dialect: PostgreSQLDialect
+guardario-api  | 	Database version: 16.16
+guardario-api  | 	Default catalog/schema: guardario/public
+guardario-api  | 	Autocommit mode: undefined/unknown
+guardario-api  | 	Isolation level: READ_COMMITTED [default READ_COMMITTED]
+guardario-api  | 	JDBC fetch size: none
+guardario-api  | 	Pool: DataSourceConnectionProvider
+guardario-api  | 	Minimum pool size: undefined/unknown
+guardario-api  | 	Maximum pool size: undefined/unknown
+guardario-api  | 2026-11-16T16:49:04.009Z  INFO 1 --- [guardario-api] [           main] org.hibernate.orm.core                   : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+guardario-api  | 2026-11-16T16:49:04.146Z  INFO 1 --- [guardario-api] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+guardario-api  | 2026-11-16T16:49:04.324Z  INFO 1 --- [guardario-api] [           main] o.s.d.j.r.query.QueryEnhancerFactories   : Hibernate is in classpath; If applicable, HQL parser will be used.
+guardario-api  | 2026-11-16T16:49:07.270Z  INFO 1 --- [guardario-api] [           main] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with UserDetailsService bean with name userDetailsService
+guardario-api  | 2026-11-16T16:49:09.105Z  INFO 1 --- [guardario-api] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 4 endpoints beneath base path '/actuator'
+guardario-api  | 2026-11-16T16:49:09.216Z  INFO 1 --- [guardario-api] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat started on port 8080 (http) with context path '/'
+guardario-api  | 2026-11-16T16:49:09.267Z  INFO 1 --- [guardario-api] [           main] b.c.fiap.guardario.GuardaRioApplication  : Started GuardaRioApplication in 14.551 seconds (process running for 15.6)
+guardario-api  | 2026-11-16T16:49:14.144Z  INFO 1 --- [guardario-api] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+guardario-api  | 2026-11-16T16:49:14.144Z  INFO 1 --- [guardario-api] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+guardario-api  | 2026-11-16T16:49:14.147Z  INFO 1 --- [guardario-api] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 3 ms
+
+$ docker compose logs --tail=15 db
+guardario-db  | 
+guardario-db  | PostgreSQL Database directory appears to contain a database; Skipping initialization
+guardario-db  | 
+guardario-db  | 2026-11-16 16:48:47.984 UTC [1] LOG:  starting PostgreSQL 16.16 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+guardario-db  | 2026-11-16 16:48:47.984 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+guardario-db  | 2026-11-16 16:48:47.984 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+guardario-db  | 2026-11-16 16:48:47.993 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+guardario-db  | 2026-11-16 16:48:48.005 UTC [15] LOG:  database system was shut down at 2026-11-16 16:48:46 UTC
+guardario-db  | 2026-11-16 16:48:48.015 UTC [1] LOG:  database system is ready to accept connections
+
+
+########## 4 · Acesso ao container da aplicação: usuário, diretório e arquivos ##########
+
+$ docker exec guardario-api sh -c 'whoami; id; pwd; ls -la'
+guardario
+uid=1001(guardario) gid=1001(guardario) groups=1001(guardario)
+/app
+total 69104
+drwxr-xr-x 1 root root     4096 Nov 16 16:46 .
+drwxr-xr-x 1 root root     4096 Nov 16 16:48 ..
+-rw-r--r-- 1 root root 70751594 Feb  1  1980 app.jar
+
+$ docker exec guardario-api ps -o pid,user,args
+PID   USER     COMMAND
+    1 guardari java -jar app.jar
+  107 guardari ps -o pid,user,args
+
+
+########## 5 · Acesso ao container do banco: usuário e diretório dos dados ##########
+
+$ docker exec guardario-db sh -c 'whoami; id; ls -ld /var/lib/postgresql/data'
+postgres
+uid=70(postgres) gid=70(postgres) groups=70(postgres)
+drwx------   19 postgres postgres      4096 Nov 16 16:48 /var/lib/postgresql/data
+
+$ docker exec guardario-db sh -c 'ps -o pid,user,args | head -n 4'
+PID   USER     COMMAND
+    1 postgres postgres
+   13 postgres postgres: checkpointer 
+   14 postgres postgres: background writer 
+
+
+########## 6 · Variáveis de ambiente (os valores das senhas ficam ocultos) ##########
+
+$ docker exec guardario-api env
+ADMIN_EMAIL=admin@guardario.com
+ADMIN_PASSWORD=********
+DB_PASSWORD=********
+DB_URL=jdbc:postgresql://db:5432/guardario
+DB_USERNAME=guardario
+JWT_SECRET=********
+PORT=8080
+SEED_ENABLED=false
+SPRING_PROFILES_ACTIVE=prod
+SWAGGER_ENABLED=true
+TZ=UTC
+
+$ docker exec guardario-db env
+PGDATA=/var/lib/postgresql/data
+POSTGRES_DB=guardario
+POSTGRES_PASSWORD=********
+POSTGRES_USER=guardario
+TZ=UTC
+
+
+########## 7 · SELECT direto no banco: duas tabelas relacionadas ##########
+
+$ docker exec guardario-db psql -U guardario -d guardario -c '\dt'
+                 List of relations
+ Schema |         Name         | Type  |   Owner   
+--------+----------------------+-------+-----------
+ public | abrigo               | table | guardario
+ public | alerta               | table | guardario
+ public | area_risco           | table | guardario
+ public | estacao              | table | guardario
+ public | leitura              | table | guardario
+ public | relato               | table | guardario
+ public | usuario              | table | guardario
+ public | usuario_area_seguida | table | guardario
+(8 rows)
+
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT id, nome, cidade, uf, populacao_estimada FROM area_risco ORDER BY id;"
+ id |      nome       |  cidade   | uf | populacao_estimada 
+----+-----------------+-----------+----+--------------------
+  2 | Jardim Pantanal | São Paulo | SP |              52000
+(1 row)
+
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.capacidade, a.ocupacao, a.status, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | capacidade | ocupacao | status | area_id |      area       
+----+--------------------------------+------------+----------+--------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |        150 |        0 | ABERTO |       2 | Jardim Pantanal
+(1 row)
+
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT conname AS chave_estrangeira, conrelid::regclass AS tabela, confrelid::regclass AS referencia FROM pg_constraint WHERE contype = 'f' AND conrelid = 'abrigo'::regclass;"
+      chave_estrangeira      | tabela | referencia 
+-----------------------------+--------+------------
+ fkg6m77s89bdumbp3np62h68pik | abrigo | area_risco
+(1 row)
+
+
+
+########## 8 · Volume nomeado ##########
+
+$ docker volume ls
+DRIVER    VOLUME NAME
+local     guardario-pgdata
+
+$ docker volume inspect guardario-pgdata
+[
+    {
+        "CreatedAt": "2026-11-16T16:47:03Z",
+        "Driver": "local",
+        "Labels": {
+            "com.docker.compose.config-hash": "b0c13b9eb5379c15006df6bd9907d44cde8ba5e71da20d67087d8c095f90cc55",
+            "com.docker.compose.project": "guardario",
+            "com.docker.compose.version": "5.7.1",
+            "com.docker.compose.volume": "pgdata"
+        },
+        "Mountpoint": "/var/lib/docker/volumes/guardario-pgdata/_data",
+        "Name": "guardario-pgdata",
+        "Options": null,
+        "Scope": "local"
+    }
+]
+
+
+########## 9 · Rede e comunicação entre os containers ##########
+
+$ docker network ls
+NETWORK ID     NAME            DRIVER    SCOPE
+2a64e1d5ce26   bridge          bridge    local
+3aafb92de2a2   guardario-net   bridge    local
+948e08e26e70   host            host      local
+84cff23fffec   none            null      local
+
+$ docker network inspect guardario-net   (containers ligados à rede)
+guardario-db  172.18.0.2/16
+guardario-api  172.18.0.3/16
+
+
+$ docker exec guardario-api getent hosts db
+172.18.0.2        db  db
+
+$ docker exec guardario-api nc -zv -w 3 db 5432
+db (172.18.0.2:5432) open
+
+$ docker port guardario-api
+8080/tcp -> 0.0.0.0:8080
+8080/tcp -> [::]:8080
+
+$ docker port guardario-db
+5432/tcp -> 127.0.0.1:5432
+
+Evidências reunidas. Para a prova de persistência: ./scripts/evidencias.sh --persistencia

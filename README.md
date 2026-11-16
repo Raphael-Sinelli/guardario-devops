@@ -6,7 +6,7 @@ O GuardaRio é um alerta comunitário de enchentes: estações medem o nível do
 
 | | |
 |---|---|
-| Aplicação no ar | `http://IP-PUBLICO:8080/swagger-ui.html` (o IP sai no fim do passo 1) |
+| Aplicação no ar | http://130.131.61.173:8080/swagger-ui.html |
 | Vídeo da demonstração | _link do YouTube (não listado)_ |
 | Código da API | pasta [`api/`](api/), a mesma API da entrega de Java Advanced ([guardario-api](https://github.com/Raphael-Sinelli/guardario-api)) |
 
@@ -47,11 +47,11 @@ O morador (app), o agente da Defesa Civil (Swagger) e a ponte das estações IoT
 
 | Recurso | Nome | Detalhe |
 |---|---|---|
-| Grupo de recursos | `rg-guardario` | região `brazilsouth` |
+| Grupo de recursos | `rg-guardario` | região `northcentralus` |
 | Rede virtual e sub-rede | `vnet-guardario` / `snet-guardario` | `10.0.0.0/16` e `10.0.0.0/24` |
 | Firewall (NSG) | `nsg-guardario` | entrada: TCP 22 e TCP 8080 |
 | IP público | `pip-guardario` | SKU Standard, fixo |
-| Máquina virtual | `vm-guardario` | Ubuntu Server 24.04 LTS, `Standard_B2s` (2 vCPU, 4 GB) |
+| Máquina virtual | `vm-guardario` | Ubuntu Server 24.04 LTS, `Standard_B2als_v2` (2 vCPU, 4 GB) |
 | Rede Docker | `guardario-net` | bridge |
 | Container da aplicação | `guardario-api` | imagem `guardario-api:1.0.0`, porta `8080:8080`, usuário `guardario` |
 | Container do banco | `guardario-db` | imagem `postgres:16-alpine`, porta `127.0.0.1:5432:5432`, usuário `postgres` |
@@ -120,7 +120,7 @@ O script roda os comandos abaixo, nesta ordem. Dá para colar um por um, se pref
 az login
 
 # 1. grupo de recursos
-az group create --name rg-guardario --location brazilsouth \
+az group create --name rg-guardario --location northcentralus \
   --tags projeto=guardario disciplina=devops
 
 # 2. VM Ubuntu 24.04 com rede, sub-rede, NSG (porta 22 liberada) e IP público fixo
@@ -128,7 +128,7 @@ az vm create \
   --resource-group rg-guardario \
   --name vm-guardario \
   --image Ubuntu2404 \
-  --size Standard_B2s \
+  --size Standard_B2als_v2 \
   --admin-username azureuser \
   --generate-ssh-keys \
   --vnet-name vnet-guardario --vnet-address-prefix 10.0.0.0/16 \
@@ -150,7 +150,7 @@ No fim, o script mostra o IP público. Guarde esse valor: ele é o `IP-PUBLICO` 
 A assinatura não tem cota na região ou não oferece o tamanho? Troque sem editar o arquivo:
 
 ```bash
-LOCATION=eastus VM_SIZE=Standard_B2s ./scripts/provisionar-vm.sh
+LOCATION=brazilsouth VM_SIZE=Standard_B2s ./scripts/provisionar-vm.sh
 ```
 
 ### 2. Instalar o Docker dentro da VM
@@ -302,10 +302,10 @@ Um comando reúne todas, na VM:
 | Variáveis de ambiente dos dois containers | `docker exec guardario-api env` e `docker exec guardario-db env` |
 | SELECT nas duas tabelas e a chave estrangeira | `docker exec guardario-db psql -U guardario -d guardario -c "..."` |
 | Volume nomeado | `docker volume ls` e `docker volume inspect guardario-pgdata` |
-| Rede e comunicação entre os containers | `docker network inspect guardario-net` e `docker exec guardario-api nslookup db` |
+| Rede e comunicação entre os containers | `docker network inspect guardario-net` e `docker exec guardario-api getent hosts db` e `docker exec guardario-api nc -zv -w 3 db 5432` |
 | Persistência | `./scripts/evidencias.sh --persistencia` |
 
-As saídas reais da VM e os prints estão em [`docs/evidencias/`](docs/evidencias/).
+As saídas reais da VM (IP público 130.131.61.173) estão em [`docs/evidencias/`](docs/evidencias/).
 
 ## Dockerfile explicado
 

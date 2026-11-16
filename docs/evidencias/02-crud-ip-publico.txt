@@ -1,0 +1,95 @@
+=== GuardaRio · CRUD em http://130.131.61.173:8080 ===
+Esperando a API responder
+
+>> GET /actuator/health  ->  HTTP 200 (esperado 200)
+   resposta: {"groups":["liveness","readiness"],"status":"UP"}
+
+--- Login do ADMIN (as escritas exigem token JWT) ---
+
+>> POST /api/auth/login  ->  HTTP 200 (esperado 200)
+   token JWT recebido (192 caracteres), usado no cabeçalho Authorization: Bearer
+
+--- CREATE ---
+
+>> POST /api/areas  ->  HTTP 201 (esperado 201)
+   enviado:  {"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000,"latitude":-23.4985,"longitude":-46.4290}
+   resposta: {"id":1,"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000,"latitude":-23.4985,"longitude":-46.429,"nivelAtual":"NORMAL","orientacao":"Sem risco no momento."}
+
+>> POST /api/abrigos  ->  HTTP 201 (esperado 201)
+   enviado:  {"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"ocupacao":0,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","areaId":1}
+   resposta: {"id":1,"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"ocupacao":0,"vagas":120,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","latitude":null,"longitude":null,"status":"ABERTO","areaId":1}
+
+   SELECT no PostgreSQL (container guardario-db):
+    id |      nome       |  cidade   | uf | populacao_estimada 
+   ----+-----------------+-----------+----+--------------------
+     1 | Jardim Pantanal | São Paulo | SP |              48000
+   (1 row)
+   
+
+   SELECT no PostgreSQL (container guardario-db):
+    id |         nome         | capacidade | ocupacao | status | area_id |      area       
+   ----+----------------------+------------+----------+--------+---------+-----------------
+     1 | EMEF Jardim Pantanal |        120 |        0 | ABERTO |       1 | Jardim Pantanal
+   (1 row)
+   
+
+--- READ ---
+
+>> GET /api/areas/1  ->  HTTP 200 (esperado 200)
+   resposta: {"id":1,"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000,"latitude":-23.4985,"longitude":-46.429,"nivelAtual":"NORMAL","orientacao":"Sem risco no momento."}
+
+>> GET /api/abrigos/1  ->  HTTP 200 (esperado 200)
+   resposta: {"id":1,"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"ocupacao":0,"vagas":120,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","latitude":null,"longitude":null,"status":"ABERTO","areaId":1}
+
+--- UPDATE ---
+
+>> PUT /api/areas/1  ->  HTTP 200 (esperado 200)
+   enviado:  {"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":52000,"latitude":-23.4985,"longitude":-46.4290}
+   resposta: {"id":1,"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":52000,"latitude":-23.4985,"longitude":-46.429,"nivelAtual":"NORMAL","orientacao":"Sem risco no momento."}
+
+>> PUT /api/abrigos/1  ->  HTTP 200 (esperado 200)
+   enviado:  {"nome":"EMEF Jardim Pantanal (ginásio)","endereco":"Rua Capachós, 120","capacidade":150,"ocupacao":0,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","areaId":1}
+   resposta: {"id":1,"nome":"EMEF Jardim Pantanal (ginásio)","endereco":"Rua Capachós, 120","capacidade":150,"ocupacao":0,"vagas":150,"aceitaPets":true,"acessivelPcd":true,"telefone":"1125550101","latitude":null,"longitude":null,"status":"ABERTO","areaId":1}
+
+   SELECT no PostgreSQL (container guardario-db):
+    id |      nome       |  cidade   | uf | populacao_estimada 
+   ----+-----------------+-----------+----+--------------------
+     1 | Jardim Pantanal | São Paulo | SP |              52000
+   (1 row)
+   
+
+   SELECT no PostgreSQL (container guardario-db):
+    id |              nome              | capacidade | ocupacao | status | area_id |      area       
+   ----+--------------------------------+------------+----------+--------+---------+-----------------
+     1 | EMEF Jardim Pantanal (ginásio) |        150 |        0 | ABERTO |       1 | Jardim Pantanal
+   (1 row)
+   
+
+--- DELETE ---
+
+>> DELETE /api/areas/1  ->  HTTP 409 (esperado 409)
+   resposta: {"timestamp":"2026-11-16T16:47:44.687446606Z","status":409,"error":"Conflict","message":"A área tem estações, abrigos, alertas, relatos ou moradores vinculados e não pode ser excluída","path":"/api/areas/1"}
+
+>> DELETE /api/abrigos/1  ->  HTTP 204 (esperado 204)
+
+>> DELETE /api/areas/1  ->  HTTP 204 (esperado 204)
+
+>> GET /api/abrigos/1  ->  HTTP 404 (esperado 404)
+   resposta: {"timestamp":"2026-11-16T16:47:44.789551800Z","status":404,"error":"Not Found","message":"Não existe abrigo com id 1","path":"/api/abrigos/1"}
+
+>> GET /api/areas/1  ->  HTTP 404 (esperado 404)
+   resposta: {"timestamp":"2026-11-16T16:47:44.818896160Z","status":404,"error":"Not Found","message":"Não existe área com id 1","path":"/api/areas/1"}
+
+   SELECT no PostgreSQL (container guardario-db):
+    id | nome | cidade | uf | populacao_estimada 
+   ----+------+--------+----+--------------------
+   (0 rows)
+   
+
+   SELECT no PostgreSQL (container guardario-db):
+    id | nome | capacidade | ocupacao | status | area_id | area 
+   ----+------+------------+----------+--------+---------+------
+   (0 rows)
+   
+
+=== CRUD completo nas duas tabelas: todos os status conferem. ===

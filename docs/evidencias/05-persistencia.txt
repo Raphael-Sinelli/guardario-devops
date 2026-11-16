@@ -1,0 +1,80 @@
+
+
+########## PERSISTÊNCIA 1/4 · dados antes de derrubar os containers ##########
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT id, nome, cidade, uf, populacao_estimada FROM area_risco ORDER BY id;"
+ id |      nome       |  cidade   | uf | populacao_estimada 
+----+-----------------+-----------+----+--------------------
+  2 | Jardim Pantanal | São Paulo | SP |              52000
+(1 row)
+
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.capacidade, a.ocupacao, a.status, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | capacidade | ocupacao | status | area_id |      area       
+----+--------------------------------+------------+----------+--------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |        150 |        0 | ABERTO |       2 | Jardim Pantanal
+(1 row)
+
+
+
+########## PERSISTÊNCIA 2/4 · docker compose down (remove os containers e a rede, mantém o volume) ##########
+
+$ docker compose down
+ Container guardario-api Stopping 
+ Container guardario-api Stopped 
+ Container guardario-api Removing 
+ Container guardario-api Removed 
+ Container guardario-db Stopping 
+ Container guardario-db Stopped 
+ Container guardario-db Removing 
+ Container guardario-db Removed 
+ Network guardario-net Removing 
+ Network guardario-net Removed 
+
+$ docker ps -a
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+
+$ docker volume ls
+DRIVER    VOLUME NAME
+local     guardario-pgdata
+
+
+########## PERSISTÊNCIA 3/4 · docker compose up -d (containers novos, mesmo volume) ##########
+
+$ docker compose up -d
+ Network guardario-net Creating 
+ Network guardario-net Created 
+ Container guardario-db Creating 
+ Container guardario-db Created 
+ Container guardario-api Creating 
+ Container guardario-api Created 
+ Container guardario-db Starting 
+ Container guardario-db Started 
+ Container guardario-db Waiting 
+ Container guardario-db Healthy 
+ Container guardario-api Starting 
+ Container guardario-api Started 
+
+Esperando a API ficar healthy....... ok
+
+$ docker compose ps
+NAME            IMAGE                 COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+guardario-api   guardario-api:1.0.0   "java -jar app.jar"      api       28 seconds ago   Up 21 seconds (healthy)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+guardario-db    postgres:16-alpine    "docker-entrypoint.s…"   db        28 seconds ago   Up 27 seconds (healthy)   127.0.0.1:5432->5432/tcp
+
+
+########## PERSISTÊNCIA 4/4 · os mesmos dados, lidos pelos containers novos ##########
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT id, nome, cidade, uf, populacao_estimada FROM area_risco ORDER BY id;"
+ id |      nome       |  cidade   | uf | populacao_estimada 
+----+-----------------+-----------+----+--------------------
+  2 | Jardim Pantanal | São Paulo | SP |              52000
+(1 row)
+
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.capacidade, a.ocupacao, a.status, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | capacidade | ocupacao | status | area_id |      area       
+----+--------------------------------+------------+----------+--------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |        150 |        0 | ABERTO |       2 | Jardim Pantanal
+(1 row)
+
