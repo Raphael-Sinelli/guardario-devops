@@ -1,0 +1,76 @@
+# GuardaRio · API Java (Spring Boot) + PostgreSQL
+# Uso:  ./scripts/gerar-env.sh  &&  docker compose up -d --build
+# Os valores com ${...} vêm do arquivo .env (modelo em .env.example). O .env não vai para o Git.
+
+name: guardario
+
+services:
+
+  # ---------- Banco de dados ----------
+  db:
+    image: postgres:16-alpine
+    container_name: guardario-db
+    restart: unless-stopped
+    # O processo já nasce como o usuário postgres (uid 70), sem passar pelo root.
+    user: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-guardario}
+      POSTGRES_USER: ${POSTGRES_USER:-guardario}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env (rode ./scripts/gerar-env.sh)}
+      TZ: UTC
+      PGTZ: UTC
+    ports:
+      # Publicada só no loopback da VM: dá para usar psql/DBeaver por túnel SSH,
+      # mas o banco não fica exposto na internet. A API não usa esta porta: fala com db:5432 pela rede interna.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      # Volume nomeado: os dados sobrevivem ao "docker compose down" e à troca do container.
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - guardario-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------- Aplicação ----------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: guardario-api:1.0.0
+    container_name: guardario-api
+    restart: unless-stopped
+    # Só "depends_on" esperaria o container do banco existir, não o banco aceitar conexão.
+    # Com service_healthy, a API só sobe depois que o pg_isready do healthcheck passa.
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # "db" é o nome do serviço acima: o DNS interno do Docker resolve para o IP do container do banco.
+      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-guardario}
+      DB_USERNAME: ${POSTGRES_USER:-guardario}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET no .env (rode ./scripts/gerar-env.sh)}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Defina ADMIN_EMAIL no .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD no .env}
+      SEED_ENABLED: ${SEED_ENABLED:-false}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-true}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:*,http://127.0.0.1:*,http://10.0.2.2:*}
+    ports:
+      # porta-da-VM:porta-do-container. É a 8080 da VM que o NSG da Azure libera para a internet.
+      - "${API_PORT:-8080}:8080"
+    networks:
+      - guardario-net
+
+volumes:
+  pgdata:
+    name: guardario-pgdata
+
+networks:
+  guardario-net:
+    name: guardario-net
+    driver: bridge
