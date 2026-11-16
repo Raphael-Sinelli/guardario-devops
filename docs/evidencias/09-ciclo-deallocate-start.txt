@@ -1,0 +1,38 @@
+# Ciclo deallocate -> start da VM vm-guardario, em 2026-11-16 (horários em UTC)
+# Os horários entre colchetes são do relógio do computador que rodou a Azure CLI; os de dentro da VM (uptime, docker inspect) são do relógio da VM, que estava 41 s à frente.
+
+[21:41:59Z] antes: estado=VM running | health=200
+[21:42:01Z] dados antes (pela API): areas=1 abrigos=1
+
+$ az vm deallocate --resource-group rg-guardario --name vm-guardario
+[21:42:35Z] exit=0 em 34s
+[21:42:35Z] estado=VM deallocated | health=000 (000 = sem resposta, esperado com a VM parada)
+
+$ az vm start --resource-group rg-guardario --name vm-guardario
+[21:42:59Z] exit=0 em 14s
+[21:43:02Z] estado=VM running | IP público=130.131.61.173 | esperado=130.131.61.173 | IP MANTIDO
+
+Esperando a API responder sozinha (ninguém entrou na VM)...
+[21:43:36Z] health=200 | API respondeu sozinha: sim, 37s depois do fim do az vm start
+[21:43:36Z] swagger=200
+[21:43:36Z] dados depois (pela API): areas=1 abrigos=1
+
+Só agora, por SSH, para conferir os containers:
+$ uptime -s
+2026-11-16 21:43:37
+
+$ docker compose ps
+NAME            IMAGE                 COMMAND                  SERVICE   CREATED       STATUS                    PORTS
+guardario-api   guardario-api:1.0.0   "java -jar app.jar"      api       5 hours ago   Up 33 seconds (healthy)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+guardario-db    postgres:16-alpine    "docker-entrypoint.s…"   db        5 hours ago   Up 33 seconds (healthy)   127.0.0.1:5432->5432/tcp
+
+$ docker inspect -f "{{.Name}} politica={{.HostConfig.RestartPolicy.Name}} iniciado={{.State.StartedAt}}" guardario-api guardario-db
+/guardario-api politica=unless-stopped iniciado=2026-11-16T21:43:52.073245393Z
+/guardario-db politica=unless-stopped iniciado=2026-11-16T21:43:52.115042672Z
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | area_id |      area       
+----+--------------------------------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |       2 | Jardim Pantanal
+(1 row)
+

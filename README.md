@@ -2,11 +2,11 @@
 
 **Global Solution 2026/2 · FIAP · CitizenTech**
 
-O GuardaRio é um alerta comunitário de enchentes: estações medem o nível do rio, a API gera os alertas da área e o app mostra ao morador os abrigos com vaga. Este repositório coloca a **API Java (Spring Boot) e o PostgreSQL em containers Docker, numa VM do Microsoft Azure criada por Azure CLI**.
+O GuardaRio é um alerta comunitário de enchentes: estações medem o nível do rio, a API gera os alertas da área e o app mostra ao morador os abrigos com vaga. É a solução do grupo para o tema CitizenTech: o cidadão beneficiado é o morador de área de risco de enchente, e o projeto se liga aos ODS 11 (cidades sustentáveis) e 13 (ação climática). Este repositório coloca a **API Java (Spring Boot) e o PostgreSQL em containers Docker, numa VM do Microsoft Azure criada por Azure CLI**.
 
 | | |
 |---|---|
-| Aplicação no ar | http://130.131.61.173:8080/swagger-ui.html |
+| Aplicação na VM Azure | http://130.131.61.173:8080/swagger-ui.html (a VM fica desligada fora das demonstrações; para religar, veja [Desligar e religar a VM](#desligar-e-religar-a-vm)) |
 | Vídeo da demonstração | **A PREENCHER** (link do YouTube, não listado) |
 | Código da API | pasta [`api/`](api/), a mesma API da entrega de Java Advanced ([guardario-api](https://github.com/Raphael-Sinelli/guardario-api)) |
 
@@ -207,7 +207,7 @@ Ele faz o login, cria uma área e um abrigo, lê, altera e apaga os dois, e conf
 
 **Pelo Swagger**, em `http://IP-PUBLICO:8080/swagger-ui.html`:
 
-1. `POST /api/auth/login` com o e-mail e a senha do ADMIN. Copie o `token` da resposta.
+1. `POST /api/auth/login` com o e-mail e a senha do ADMIN, os do `.env` da VM. Copie o `token` da resposta. Os usuários de teste que aparecem na descrição do Swagger são da carga do perfil `dev` e não existem na nuvem.
 2. Botão **Authorize**, cole o token e confirme.
 3. `POST /api/areas` cria a área (201). Guarde o `id`.
 4. `POST /api/abrigos` com esse `areaId` cria o abrigo (201).
@@ -287,25 +287,396 @@ Só o `docker compose down -v` apaga o volume, e com ele os dados.
 
 ## Evidências
 
-Um comando reúne todas, na VM:
+Tudo o que está nesta seção é saída real da VM `vm-guardario` (IP público `130.131.61.173`), capturada em 16/11/2026. Os blocos abaixo são trechos copiados dos arquivos de [`docs/evidencias/`](docs/evidencias/).
 
-```bash
-./scripts/evidencias.sh
+| Arquivo | O que mostra |
+|---|---|
+| [`01-provisionamento-azure-cli.txt`](docs/evidencias/01-provisionamento-azure-cli.txt) | saída do `scripts/provisionar-vm.sh`: VM `running`, IP público e as regras do NSG |
+| [`02-crud-ip-publico.txt`](docs/evidencias/02-crud-ip-publico.txt) | CRUD completo pelo IP público, rodado na VM, com o SELECT depois de cada operação |
+| [`03-crud-de-fora-da-vm.txt`](docs/evidencias/03-crud-de-fora-da-vm.txt) | o mesmo CRUD rodado de um computador fora da Azure, pela internet |
+| [`04-evidencias-containers.txt`](docs/evidencias/04-evidencias-containers.txt) | containers, logs, exec, usuário, diretórios, variáveis, SELECT, volume e rede |
+| [`05-persistencia.txt`](docs/evidencias/05-persistencia.txt) | `docker compose down`, `up -d` e os mesmos dados |
+| [`06-swagger-ip-publico.png`](docs/evidencias/06-swagger-ip-publico.png) | Swagger UI aberto no navegador pelo IP público |
+| [`07-get-areas-ip-publico.png`](docs/evidencias/07-get-areas-ip-publico.png) | `GET /api/areas` no navegador pelo IP público |
+| [`08-get-abrigos-ip-publico.png`](docs/evidencias/08-get-abrigos-ip-publico.png) | `GET /api/abrigos` no navegador pelo IP público |
+| [`09-ciclo-deallocate-start.txt`](docs/evidencias/09-ciclo-deallocate-start.txt) | VM desligada com `az vm deallocate` e religada com `az vm start`: IP, containers e dados depois do ciclo |
+
+Para gerar tudo de novo na VM: `./scripts/evidencias.sh` e `./scripts/evidencias.sh --persistencia`.
+
+### Aplicação no ar pelo IP público
+
+Capturas do navegador, com o endereço `130.131.61.173:8080` na barra.
+
+![Swagger UI pelo IP público](docs/evidencias/06-swagger-ip-publico.png)
+
+![GET /api/areas pelo IP público](docs/evidencias/07-get-areas-ip-publico.png)
+
+![GET /api/abrigos pelo IP público](docs/evidencias/08-get-abrigos-ip-publico.png)
+
+### Containers em execução, em background
+
+```text
+$ hostname
+vm-guardario
+
+$ docker --version
+Docker version 29.10.0, build fdd4b8e
+
+$ docker compose version
+Docker Compose version v5.7.1
+
+$ docker compose ps
+NAME            IMAGE                 COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+guardario-api   guardario-api:1.0.0   "java -jar app.jar"      api       58 seconds ago   Up 51 seconds (healthy)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+guardario-db    postgres:16-alpine    "docker-entrypoint.s…"   db        58 seconds ago   Up 57 seconds (healthy)   127.0.0.1:5432->5432/tcp
 ```
 
-| O que mostra | Comando |
-|---|---|
-| Containers em execução, em background | `docker compose ps` |
-| Logs da aplicação e do banco | `docker compose logs --tail=25 api` e `docker compose logs --tail=15 db` |
-| Acesso ao container da aplicação, usuário e diretórios | `docker exec guardario-api sh -c 'whoami; id; pwd; ls -la'` |
-| Acesso ao container do banco, usuário e diretório dos dados | `docker exec guardario-db sh -c 'whoami; id; ls -ld /var/lib/postgresql/data'` |
-| Variáveis de ambiente dos dois containers | `docker exec guardario-api env` e `docker exec guardario-db env` |
-| SELECT nas duas tabelas e a chave estrangeira | `docker exec guardario-db psql -U guardario -d guardario -c "..."` |
-| Volume nomeado | `docker volume ls` e `docker volume inspect guardario-pgdata` |
-| Rede e comunicação entre os containers | `docker network inspect guardario-net` e `docker exec guardario-api getent hosts db` e `docker exec guardario-api nc -zv -w 3 db 5432` |
-| Persistência | `./scripts/evidencias.sh --persistencia` |
+### Container da aplicação (`guardario-api`)
 
-As saídas reais da VM (IP público 130.131.61.173) estão em [`docs/evidencias/`](docs/evidencias/).
+**Acesso ao container, usuário e diretórios.** O processo roda como `guardario` (uid 1001), não como root, no `WORKDIR /app`.
+
+```text
+$ docker exec guardario-api sh -c 'whoami; id; pwd; ls -la'
+guardario
+uid=1001(guardario) gid=1001(guardario) groups=1001(guardario)
+/app
+total 69104
+drwxr-xr-x 1 root root     4096 Nov 16 16:46 .
+drwxr-xr-x 1 root root     4096 Nov 16 16:48 ..
+-rw-r--r-- 1 root root 70751594 Feb  1  1980 app.jar
+
+$ docker exec guardario-api ps -o pid,user,args
+PID   USER     COMMAND
+    1 guardari java -jar app.jar
+  107 guardari ps -o pid,user,args
+```
+
+**Logs.** A API conecta em `jdbc:postgresql://db:5432/guardario` e sobe o Tomcat na 8080.
+
+```text
+$ docker compose logs --tail=25 api
+guardario-api  | 2026-11-16T16:49:01.489Z  INFO 1 --- [guardario-api] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...
+guardario-api  | 2026-11-16T16:49:01.789Z  INFO 1 --- [guardario-api] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@15c96f24
+guardario-api  | 2026-11-16T16:49:01.792Z  INFO 1 --- [guardario-api] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.
+guardario-api  | 2026-11-16T16:49:01.884Z  INFO 1 --- [guardario-api] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:
+guardario-api  | 	Database JDBC URL [jdbc:postgresql://db:5432/guardario]
+guardario-api  | 	Database driver: PostgreSQL JDBC Driver
+guardario-api  | 	Database dialect: PostgreSQLDialect
+guardario-api  | 	Database version: 16.16
+guardario-api  | 	Default catalog/schema: guardario/public
+guardario-api  | 	Autocommit mode: undefined/unknown
+guardario-api  | 	Isolation level: READ_COMMITTED [default READ_COMMITTED]
+guardario-api  | 	JDBC fetch size: none
+guardario-api  | 	Pool: DataSourceConnectionProvider
+guardario-api  | 	Minimum pool size: undefined/unknown
+guardario-api  | 	Maximum pool size: undefined/unknown
+guardario-api  | 2026-11-16T16:49:04.009Z  INFO 1 --- [guardario-api] [           main] org.hibernate.orm.core                   : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)
+guardario-api  | 2026-11-16T16:49:04.146Z  INFO 1 --- [guardario-api] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'
+guardario-api  | 2026-11-16T16:49:04.324Z  INFO 1 --- [guardario-api] [           main] o.s.d.j.r.query.QueryEnhancerFactories   : Hibernate is in classpath; If applicable, HQL parser will be used.
+guardario-api  | 2026-11-16T16:49:07.270Z  INFO 1 --- [guardario-api] [           main] r$InitializeUserDetailsManagerConfigurer : Global AuthenticationManager configured with UserDetailsService bean with name userDetailsService
+guardario-api  | 2026-11-16T16:49:09.105Z  INFO 1 --- [guardario-api] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 4 endpoints beneath base path '/actuator'
+guardario-api  | 2026-11-16T16:49:09.216Z  INFO 1 --- [guardario-api] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat started on port 8080 (http) with context path '/'
+guardario-api  | 2026-11-16T16:49:09.267Z  INFO 1 --- [guardario-api] [           main] b.c.fiap.guardario.GuardaRioApplication  : Started GuardaRioApplication in 14.551 seconds (process running for 15.6)
+guardario-api  | 2026-11-16T16:49:14.144Z  INFO 1 --- [guardario-api] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'
+guardario-api  | 2026-11-16T16:49:14.144Z  INFO 1 --- [guardario-api] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'
+guardario-api  | 2026-11-16T16:49:14.147Z  INFO 1 --- [guardario-api] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 3 ms
+```
+
+**Variáveis de ambiente.** Os valores das senhas são ocultados pelo script.
+
+```text
+$ docker exec guardario-api env
+ADMIN_EMAIL=admin@guardario.com
+ADMIN_PASSWORD=********
+DB_PASSWORD=********
+DB_URL=jdbc:postgresql://db:5432/guardario
+DB_USERNAME=guardario
+JWT_SECRET=********
+PORT=8080
+SEED_ENABLED=false
+SPRING_PROFILES_ACTIVE=prod
+SWAGGER_ENABLED=true
+TZ=UTC
+```
+
+**Porta publicada.**
+
+```text
+$ docker port guardario-api
+8080/tcp -> 0.0.0.0:8080
+8080/tcp -> [::]:8080
+```
+
+### Container do banco (`guardario-db`)
+
+**Acesso ao container, usuário e diretório dos dados.** O PostgreSQL roda como `postgres` (uid 70), não como root.
+
+```text
+$ docker exec guardario-db sh -c 'whoami; id; ls -ld /var/lib/postgresql/data'
+postgres
+uid=70(postgres) gid=70(postgres) groups=70(postgres)
+drwx------   19 postgres postgres      4096 Nov 16 16:48 /var/lib/postgresql/data
+
+$ docker exec guardario-db sh -c 'ps -o pid,user,args | head -n 4'
+PID   USER     COMMAND
+    1 postgres postgres
+   13 postgres postgres: checkpointer 
+   14 postgres postgres: background writer 
+```
+
+**Logs.**
+
+```text
+$ docker compose logs --tail=15 db
+guardario-db  | 
+guardario-db  | PostgreSQL Database directory appears to contain a database; Skipping initialization
+guardario-db  | 
+guardario-db  | 2026-11-16 16:48:47.984 UTC [1] LOG:  starting PostgreSQL 16.16 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+guardario-db  | 2026-11-16 16:48:47.984 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+guardario-db  | 2026-11-16 16:48:47.984 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+guardario-db  | 2026-11-16 16:48:47.993 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+guardario-db  | 2026-11-16 16:48:48.005 UTC [15] LOG:  database system was shut down at 2026-11-16 16:48:46 UTC
+guardario-db  | 2026-11-16 16:48:48.015 UTC [1] LOG:  database system is ready to accept connections
+```
+
+**Variáveis de ambiente e porta.**
+
+```text
+$ docker exec guardario-db env
+PGDATA=/var/lib/postgresql/data
+POSTGRES_DB=guardario
+POSTGRES_PASSWORD=********
+POSTGRES_USER=guardario
+TZ=UTC
+
+$ docker port guardario-db
+5432/tcp -> 127.0.0.1:5432
+```
+
+**Volume nomeado.**
+
+```text
+$ docker volume ls
+DRIVER    VOLUME NAME
+local     guardario-pgdata
+
+$ docker volume inspect guardario-pgdata
+[
+    {
+        "CreatedAt": "2026-11-16T16:47:03Z",
+        "Driver": "local",
+        "Labels": {
+            "com.docker.compose.config-hash": "b0c13b9eb5379c15006df6bd9907d44cde8ba5e71da20d67087d8c095f90cc55",
+            "com.docker.compose.project": "guardario",
+            "com.docker.compose.version": "5.7.1",
+            "com.docker.compose.volume": "pgdata"
+        },
+        "Mountpoint": "/var/lib/docker/volumes/guardario-pgdata/_data",
+        "Name": "guardario-pgdata",
+        "Options": null,
+        "Scope": "local"
+    }
+]
+```
+
+**SELECT direto no banco.** As tabelas, os registros de `area_risco` e de `abrigo` (com o JOIN pela chave estrangeira) e a própria chave estrangeira.
+
+```text
+$ docker exec guardario-db psql -U guardario -d guardario -c '\dt'
+                 List of relations
+ Schema |         Name         | Type  |   Owner   
+--------+----------------------+-------+-----------
+ public | abrigo               | table | guardario
+ public | alerta               | table | guardario
+ public | area_risco           | table | guardario
+ public | estacao              | table | guardario
+ public | leitura              | table | guardario
+ public | relato               | table | guardario
+ public | usuario              | table | guardario
+ public | usuario_area_seguida | table | guardario
+(8 rows)
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT id, nome, cidade, uf, populacao_estimada FROM area_risco ORDER BY id;"
+ id |      nome       |  cidade   | uf | populacao_estimada 
+----+-----------------+-----------+----+--------------------
+  2 | Jardim Pantanal | São Paulo | SP |              52000
+(1 row)
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.capacidade, a.ocupacao, a.status, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | capacidade | ocupacao | status | area_id |      area       
+----+--------------------------------+------------+----------+--------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |        150 |        0 | ABERTO |       2 | Jardim Pantanal
+(1 row)
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT conname AS chave_estrangeira, conrelid::regclass AS tabela, confrelid::regclass AS referencia FROM pg_constraint WHERE contype = 'f' AND conrelid = 'abrigo'::regclass;"
+      chave_estrangeira      | tabela | referencia 
+-----------------------------+--------+------------
+ fkg6m77s89bdumbp3np62h68pik | abrigo | area_risco
+(1 row)
+```
+
+### Docker Compose: rede e comunicação entre os containers
+
+Os dois containers estão na rede `guardario-net`. De dentro do container da API, o nome `db` resolve para o IP do container do banco e a porta 5432 responde.
+
+```text
+$ docker network ls
+NETWORK ID     NAME            DRIVER    SCOPE
+2a64e1d5ce26   bridge          bridge    local
+3aafb92de2a2   guardario-net   bridge    local
+948e08e26e70   host            host      local
+84cff23fffec   none            null      local
+
+$ docker network inspect guardario-net   (containers ligados à rede)
+guardario-db  172.18.0.2/16
+guardario-api  172.18.0.3/16
+
+$ docker exec guardario-api getent hosts db
+172.18.0.2        db  db
+
+$ docker exec guardario-api nc -zv -w 3 db 5432
+db (172.18.0.2:5432) open
+```
+
+### CRUD completo pelo IP público
+
+`./scripts/testar-crud.sh http://130.131.61.173:8080`, rodado na VM. Cada linha é uma chamada HTTP e o status recebido. O arquivo [`02-crud-ip-publico.txt`](docs/evidencias/02-crud-ip-publico.txt) tem também os corpos e o SELECT depois de cada operação.
+
+```text
+=== GuardaRio · CRUD em http://130.131.61.173:8080 ===
+>> GET /actuator/health  ->  HTTP 200 (esperado 200)
+>> POST /api/auth/login  ->  HTTP 200 (esperado 200)
+>> POST /api/areas  ->  HTTP 201 (esperado 201)
+>> POST /api/abrigos  ->  HTTP 201 (esperado 201)
+>> GET /api/areas/1  ->  HTTP 200 (esperado 200)
+>> GET /api/abrigos/1  ->  HTTP 200 (esperado 200)
+>> PUT /api/areas/1  ->  HTTP 200 (esperado 200)
+>> PUT /api/abrigos/1  ->  HTTP 200 (esperado 200)
+>> DELETE /api/areas/1  ->  HTTP 409 (esperado 409)
+>> DELETE /api/abrigos/1  ->  HTTP 204 (esperado 204)
+>> DELETE /api/areas/1  ->  HTTP 204 (esperado 204)
+>> GET /api/abrigos/1  ->  HTTP 404 (esperado 404)
+>> GET /api/areas/1  ->  HTTP 404 (esperado 404)
+=== CRUD completo nas duas tabelas: todos os status conferem. ===
+```
+
+O mesmo script, rodado de um computador fora da Azure (com `--manter`, que deixa os registros no banco):
+
+```text
+# Executado de fora da VM (computador do grupo, Windows + Git Bash, pela internet), em 2026-11-16T16:47:51Z
+=== GuardaRio · CRUD em http://130.131.61.173:8080 ===
+>> GET /actuator/health  ->  HTTP 200 (esperado 200)
+>> POST /api/auth/login  ->  HTTP 200 (esperado 200)
+>> POST /api/areas  ->  HTTP 201 (esperado 201)
+>> POST /api/abrigos  ->  HTTP 201 (esperado 201)
+>> GET /api/areas/2  ->  HTTP 200 (esperado 200)
+>> GET /api/abrigos/2  ->  HTTP 200 (esperado 200)
+>> PUT /api/areas/2  ->  HTTP 200 (esperado 200)
+>> PUT /api/abrigos/2  ->  HTTP 200 (esperado 200)
+=== C, R e U concluídos. Área 2 e abrigo 2 ficaram no banco (--manter). ===
+```
+
+### Persistência dos dados
+
+`./scripts/evidencias.sh --persistencia`: os dados antes, o `docker compose down`, o volume que ficou, o `docker compose up -d` e os mesmos dados nos containers novos.
+
+```text
+# antes
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.capacidade, a.ocupacao, a.status, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | capacidade | ocupacao | status | area_id |      area       
+----+--------------------------------+------------+----------+--------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |        150 |        0 | ABERTO |       2 | Jardim Pantanal
+(1 row)
+
+$ docker compose down
+ Container guardario-api Stopping 
+ Container guardario-api Stopped 
+ Container guardario-api Removing 
+ Container guardario-api Removed 
+ Container guardario-db Stopping 
+ Container guardario-db Stopped 
+ Container guardario-db Removing 
+ Container guardario-db Removed 
+ Network guardario-net Removing 
+ Network guardario-net Removed 
+
+$ docker ps -a
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+
+$ docker volume ls
+DRIVER    VOLUME NAME
+local     guardario-pgdata
+
+$ docker compose up -d
+ Network guardario-net Creating 
+ Network guardario-net Created 
+ Container guardario-db Creating 
+ Container guardario-db Created 
+ Container guardario-api Creating 
+ Container guardario-api Created 
+ Container guardario-db Starting 
+ Container guardario-db Started 
+ Container guardario-db Waiting 
+ Container guardario-db Healthy 
+ Container guardario-api Starting 
+ Container guardario-api Started 
+
+$ docker compose ps
+NAME            IMAGE                 COMMAND                  SERVICE   CREATED          STATUS                    PORTS
+guardario-api   guardario-api:1.0.0   "java -jar app.jar"      api       28 seconds ago   Up 21 seconds (healthy)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+guardario-db    postgres:16-alpine    "docker-entrypoint.s…"   db        28 seconds ago   Up 27 seconds (healthy)   127.0.0.1:5432->5432/tcp
+
+# depois
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.capacidade, a.ocupacao, a.status, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | capacidade | ocupacao | status | area_id |      area       
+----+--------------------------------+------------+----------+--------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |        150 |        0 | ABERTO |       2 | Jardim Pantanal
+(1 row)
+```
+
+### VM desligada e religada
+
+`az vm deallocate` seguido de `az vm start`, sem ninguém entrar na VM para subir os containers. O IP público continuou o mesmo, os dois containers voltaram sozinhos (`restart: unless-stopped`) e os dados estavam no volume.
+
+```text
+# Ciclo deallocate -> start da VM vm-guardario, em 2026-11-16 (horários em UTC)
+# Os horários entre colchetes são do relógio do computador que rodou a Azure CLI; os de dentro da VM (uptime, docker inspect) são do relógio da VM, que estava 41 s à frente.
+
+[21:41:59Z] antes: estado=VM running | health=200
+[21:42:01Z] dados antes (pela API): areas=1 abrigos=1
+
+$ az vm deallocate --resource-group rg-guardario --name vm-guardario
+[21:42:35Z] exit=0 em 34s
+[21:42:35Z] estado=VM deallocated | health=000 (000 = sem resposta, esperado com a VM parada)
+
+$ az vm start --resource-group rg-guardario --name vm-guardario
+[21:42:59Z] exit=0 em 14s
+[21:43:02Z] estado=VM running | IP público=130.131.61.173 | esperado=130.131.61.173 | IP MANTIDO
+
+Esperando a API responder sozinha (ninguém entrou na VM)...
+[21:43:36Z] health=200 | API respondeu sozinha: sim, 37s depois do fim do az vm start
+[21:43:36Z] swagger=200
+[21:43:36Z] dados depois (pela API): areas=1 abrigos=1
+
+Só agora, por SSH, para conferir os containers:
+$ uptime -s
+2026-11-16 21:43:37
+
+$ docker compose ps
+NAME            IMAGE                 COMMAND                  SERVICE   CREATED       STATUS                    PORTS
+guardario-api   guardario-api:1.0.0   "java -jar app.jar"      api       5 hours ago   Up 33 seconds (healthy)   0.0.0.0:8080->8080/tcp, [::]:8080->8080/tcp
+guardario-db    postgres:16-alpine    "docker-entrypoint.s…"   db        5 hours ago   Up 33 seconds (healthy)   127.0.0.1:5432->5432/tcp
+
+$ docker inspect -f "{{.Name}} politica={{.HostConfig.RestartPolicy.Name}} iniciado={{.State.StartedAt}}" guardario-api guardario-db
+/guardario-api politica=unless-stopped iniciado=2026-11-16T21:43:52.073245393Z
+/guardario-db politica=unless-stopped iniciado=2026-11-16T21:43:52.115042672Z
+
+$ docker exec guardario-db psql -U guardario -d guardario -c "SELECT a.id, a.nome, a.area_id, r.nome AS area FROM abrigo a JOIN area_risco r ON r.id = a.area_id ORDER BY a.id;"
+ id |              nome              | area_id |      area       
+----+--------------------------------+---------+-----------------
+  2 | EMEF Jardim Pantanal (ginásio) |       2 | Jardim Pantanal
+(1 row)
+```
 
 ## Dockerfile explicado
 
@@ -377,14 +748,25 @@ git pull && docker compose up -d --build
 docker compose down
 ```
 
-Do computador ou do Cloud Shell, para a VM não gastar crédito parada:
+### Desligar e religar a VM
+
+A VM fica desligada fora das demonstrações, para não gastar crédito. Do computador ou do Cloud Shell:
 
 ```bash
+# desligar: libera a máquina e para a cobrança de computação (o disco e o IP continuam reservados)
 az vm deallocate --resource-group rg-guardario --name vm-guardario
-az vm start      --resource-group rg-guardario --name vm-guardario
+
+# religar
+az vm start --resource-group rg-guardario --name vm-guardario
+
+# conferir o estado e o IP
+az vm show --show-details --resource-group rg-guardario --name vm-guardario \
+  --query "{estado:powerState, ip:publicIps}" --output table
 ```
 
-O IP público é fixo e os containers têm `restart: unless-stopped`: depois do `az vm start`, a API volta no mesmo endereço sem ninguém entrar na VM.
+Só o `az vm start` basta: não é preciso entrar na VM nem rodar `docker compose up`. O serviço do Docker sobe com a VM e os dois containers têm `restart: unless-stopped`. O IP público é do SKU Standard, com alocação fixa, e não muda.
+
+Testamos o ciclo em 16/11/2026: o IP continuou `130.131.61.173`, a API respondeu no IP público 37 segundos depois de o `az vm start` terminar, os dois containers voltaram `healthy` sozinhos e os dados estavam no volume. A saída completa está em [`docs/evidencias/09-ciclo-deallocate-start.txt`](docs/evidencias/09-ciclo-deallocate-start.txt).
 
 Para apagar tudo depois da apresentação: `./scripts/remover-recursos.sh`.
 
