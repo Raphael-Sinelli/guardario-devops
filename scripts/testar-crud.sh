@@ -44,8 +44,13 @@ chamar() {
   local metodo="$1" caminho="$2" esperado="$3" corpo="${4:-}"
   local args=(-sS -X "$metodo" -o "$TMP/corpo" -D "$TMP/cabecalhos" -w '%{http_code}' -H 'Accept: application/json')
   [ -n "$TOKEN" ] && args+=(-H "Authorization: Bearer $TOKEN")
-  [ -n "$corpo" ] && args+=(-H 'Content-Type: application/json' -d "$corpo")
-  STATUS="$(curl "${args[@]}" "$BASE_URL$caminho")"
+  if [ -n "$corpo" ]; then
+    # O corpo vai pela entrada padrão, em UTF-8. Como argumento (-d "..."), o curl do Windows
+    # troca os acentos pelo código de página do sistema e a API responde 400.
+    STATUS="$(printf '%s' "$corpo" | curl "${args[@]}" -H 'Content-Type: application/json; charset=utf-8' --data-binary @- "$BASE_URL$caminho")"
+  else
+    STATUS="$(curl "${args[@]}" "$BASE_URL$caminho")"
+  fi
   printf '\n>> %s %s  ->  HTTP %s (esperado %s)\n' "$metodo" "$caminho" "$STATUS" "$esperado"
   [ -n "$corpo" ] && printf '   enviado:  %s\n' "$corpo"
   # os _links do HATEOAS saem da tela para sobrar espaço para os dados do recurso
@@ -83,8 +88,9 @@ chamar GET /actuator/health 200
 
 echo; echo "--- Login do ADMIN (as escritas exigem token JWT) ---"
 # Chamada direta, sem o chamar(): a senha e o token não aparecem na tela nem no vídeo
-STATUS="$(curl -sS -o "$TMP/corpo" -w '%{http_code}' -X POST "$BASE_URL/api/auth/login" \
-  -H 'Content-Type: application/json' -d "{\"email\":\"$ADMIN_EMAIL\",\"senha\":\"$ADMIN_PASSWORD\"}")"
+STATUS="$(printf '{"email":"%s","senha":"%s"}' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" \
+  | curl -sS -o "$TMP/corpo" -w '%{http_code}' -X POST "$BASE_URL/api/auth/login" \
+      -H 'Content-Type: application/json; charset=utf-8' --data-binary @-)"
 TOKEN="$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$TMP/corpo")"
 printf '\n>> POST /api/auth/login  ->  HTTP %s (esperado 200)\n' "$STATUS"
 [ "$STATUS" = "200" ] && [ -n "$TOKEN" ] || { echo "FALHOU: login recusado. Confira ADMIN_EMAIL e ADMIN_PASSWORD."; head -c 300 "$TMP/corpo"; echo; exit 1; }

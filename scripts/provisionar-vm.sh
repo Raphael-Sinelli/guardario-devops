@@ -8,14 +8,14 @@
 # Onde rodar: no seu computador (com a Azure CLI instalada) ou no Azure Cloud Shell.
 # Uso:        ./scripts/provisionar-vm.sh
 # Sem cota na região ou sem o tamanho da VM? Troque sem editar o arquivo:
-#             LOCATION=eastus VM_SIZE=Standard_B2s ./scripts/provisionar-vm.sh
+#             LOCATION=brazilsouth VM_SIZE=Standard_B2s ./scripts/provisionar-vm.sh
 # =====================================================================================
 set -euo pipefail
 
 RESOURCE_GROUP="${RESOURCE_GROUP:-rg-guardario}"
-LOCATION="${LOCATION:-brazilsouth}"
+LOCATION="${LOCATION:-northcentralus}"
 VM_NAME="${VM_NAME:-vm-guardario}"
-VM_SIZE="${VM_SIZE:-Standard_B2s}"          # 2 vCPU e 4 GB: o build do Maven roda dentro da VM
+VM_SIZE="${VM_SIZE:-Standard_B2als_v2}"     # 2 vCPU e 4 GB: o build do Maven roda dentro da VM
 VM_IMAGE="${VM_IMAGE:-Ubuntu2404}"          # Ubuntu Server 24.04 LTS
 ADMIN_USER="${ADMIN_USER:-azureuser}"
 VNET_NAME="${VNET_NAME:-vnet-guardario}"

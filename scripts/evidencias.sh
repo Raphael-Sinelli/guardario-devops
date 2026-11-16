@@ -99,7 +99,9 @@ titulo "9 · Rede e comunicação entre os containers"
 rodar "docker network ls"
 printf '\n$ docker network inspect guardario-net   (containers ligados à rede)\n'
 docker network inspect guardario-net --format '{{range .Containers}}{{.Name}}  {{.IPv4Address}}{{"\n"}}{{end}}'
-rodar "docker exec guardario-api nslookup db"
+# o DNS interno do Docker resolve o nome do serviço, e a API alcança a porta do banco pela rede interna
+rodar "docker exec guardario-api getent hosts db"
+rodar "docker exec guardario-api nc -zv -w 3 db 5432"
 rodar "docker port guardario-api"
 rodar "docker port guardario-db"
 
