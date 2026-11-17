@@ -89,7 +89,7 @@ Próximos passos (dentro da VM):
 
 Depois do "docker compose up -d --build":
   API:     http://${IP_PUBLICO}:${API_PORT}/actuator/health
-  Swagger: http://${IP_PUBLICO}:${API_PORT}/swagger-ui.html
+  Swagger: http://${IP_PUBLICO}:${API_PORT}/swagger-ui/index.html
 
 Para não gastar crédito com a VM parada:
   az vm deallocate --resource-group ${RESOURCE_GROUP} --name ${VM_NAME}
