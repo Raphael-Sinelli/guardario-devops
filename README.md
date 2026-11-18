@@ -6,7 +6,7 @@ Este repositório coloca a solução GuardaRio na nuvem. A **API Java (Spring Bo
 
 | | |
 |---|---|
-| Aplicação na VM Azure | http://130.131.61.173:8080/swagger-ui/index.html (a VM fica desligada fora das demonstrações; para religar, veja [Desligar e religar a VM](#desligar-e-religar-a-vm)) |
+| Aplicação na VM Azure | http://130.131.61.173:8080/swagger-ui/index.html (depois do vídeo a VM fica desligada, para poupar crédito; para ver ao vivo, peça a um integrante, que religa em cerca de 2 minutos no mesmo IP: veja [Desligar e religar a VM](#desligar-e-religar-a-vm)) |
 | Vídeo da demonstração | **A PREENCHER** (link do YouTube, não listado) |
 | Código da API | pasta [`api/`](api/), a mesma API da entrega de Java Advanced ([guardario-api](https://github.com/Raphael-Sinelli/guardario-api)) |
 
@@ -616,7 +616,7 @@ O [`docker-compose.yml`](docker-compose.yml) define tudo num arquivo só:
 
 **Por que `condition: service_healthy`.** O `depends_on` simples só espera o container do banco ser criado, e o PostgreSQL leva alguns segundos para aceitar conexão. Com a condição, o Compose espera o `pg_isready` do healthcheck passar e só então inicia a API.
 
-**Por que a porta do banco só no loopback.** A API não precisa dela, porque fala com o banco pela rede interna. A porta fica publicada em `127.0.0.1` para dar acesso por túnel SSH a quem administra (`ssh -L 5432:127.0.0.1:5432 azureuser@IP-PUBLICO` e depois DBeaver ou psql em `localhost:5432`), sem expor o banco na internet. O NSG também não libera a 5432.
+**Por que a porta do banco só no loopback.** A API não precisa dela, porque fala com o banco pela rede interna. A porta fica publicada em `127.0.0.1` para dar acesso por túnel SSH a quem administra (`ssh -L 5432:127.0.0.1:5432 azureuser@IP-PUBLICO`; com o túnel aberto, o DBeaver ou o psql da própria máquina de quem administra conecta na porta 5432 dela, e o túnel leva até o banco), sem expor o banco na internet. O NSG também não libera a 5432.
 
 **Por que o volume e a rede não têm o prefixo do projeto.** Sem a chave `name:`, o Compose põe o nome do projeto na frente dos recursos, como o `moneyhub_mysql-dimdim-data` e o `moneyhub_dimdim-network` da aula 11; aqui eles seriam `guardario_pgdata` e `guardario_guardario-net`. Com `name: guardario-pgdata` e `name: guardario-net` no arquivo, os nomes ficam fixos e os comandos de `inspect` do README funcionam em qualquer pasta.
 
@@ -673,6 +673,8 @@ az vm show --show-details --resource-group rg-guardario --name vm-guardario \
 Só o `az vm start` basta: não é preciso entrar na VM nem rodar `docker compose up`. O serviço do Docker sobe com a VM e os dois containers têm `restart: unless-stopped`. O IP público é do SKU Standard, com alocação fixa, e não muda.
 
 Testamos o ciclo em 16/11/2026: o IP continuou `130.131.61.173`, a API respondeu no IP público 37 segundos depois de o `az vm start` terminar, os dois containers voltaram `healthy` sozinhos e os dados estavam no volume. Repetimos em 17/11/2026, com os prints em [Ciclo da VM: desligar e religar](#ciclo-da-vm-desligar-e-religar). A saída completa do primeiro teste está em [`docs/evidencias/texto/09-ciclo-deallocate-start.txt`](docs/evidencias/texto/09-ciclo-deallocate-start.txt).
+
+**Para o professor.** Depois da gravação do vídeo a VM fica desalocada, e quem tem acesso à assinatura é o grupo. Para ver a aplicação ao vivo durante a correção, peça a qualquer integrante: com o `az vm start` acima, a API volta no mesmo endereço, `http://130.131.61.173:8080`, em cerca de 2 minutos. Na apresentação de 23 a 27/11, o grupo liga a VM antes da aula. Para reproduzir tudo sem depender da VM do grupo, siga o [How To](#how-to-do-zero-até-o-crud-na-nuvem) na sua própria assinatura.
 
 Para apagar tudo depois da apresentação: `./scripts/remover-recursos.sh`.
 
