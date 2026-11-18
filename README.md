@@ -94,7 +94,7 @@ guardario-devops/
 │   ├── gerar-env.sh         cria o .env com senhas e chave JWT aleatórias
 │   ├── testar-crud.sh       CRUD completo em duas tabelas relacionadas, pelo IP público
 │   ├── evidencias.sh        containers, logs, exec, SELECT, volume, rede e persistência
-│   ├── demo-video.sh        roteiro de demonstração do vídeo: uma cena por tela, Enter entre as etapas
+│   ├── demo-video.sh        roteiro de demonstração do vídeo: digita e executa cada comando, Enter entre as etapas
 │   └── remover-recursos.sh  apaga o grupo de recursos depois da apresentação
 └── docs/
     ├── arquitetura.png      arquitetura macro (e o .svg editável)
@@ -547,7 +547,7 @@ A saída completa de outra execução, gravada num arquivo na VM e mostrada em q
 
 ### Scripts do repositório
 
-Os sete scripts na VM, com a primeira linha de cada um, que diz o que ele faz. O `demo-video.sh` é o roteiro de demonstração usado no vídeo: na VM, `./scripts/demo-video.sh` mostra cena por cena os containers, os logs, o acesso, as variáveis, o volume, a rede, o SELECT, o CRUD pelo IP público com SELECT depois de cada operação e a persistência, e apaga sozinho os registros de teste no fim. `./scripts/demo-video.sh --cena 14` começa direto numa cena.
+Os sete scripts na VM, com a primeira linha de cada um, que diz o que ele faz. O `demo-video.sh` é o roteiro de demonstração usado no vídeo: na VM, `./scripts/demo-video.sh` digita cada comando na tela, executa esse mesmo comando ao vivo e mostra cena por cena os containers, os logs, o acesso, as variáveis, o volume, a rede, o SELECT, o CRUD pelo IP público com SELECT depois de cada operação e a persistência, e apaga sozinho os registros de teste no fim. `./scripts/demo-video.sh --cena 14` começa direto numa cena; `--rapido` e `--lento` mudam a velocidade da digitação.
 
 ![scripts do repositório](docs/evidencias/06-scripts-do-repositorio.png)
 
