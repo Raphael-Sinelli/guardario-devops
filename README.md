@@ -69,8 +69,15 @@ O morador (app), o agente da Defesa Civil (Swagger) e a ponte das estações IoT
 | Container da aplicação | `guardario-api` | imagem `guardario-api:1.0.0`, porta `8080:8080`, usuário `guardario` |
 | Container do banco | `guardario-db` | imagem `postgres:16-alpine`, porta `127.0.0.1:5432:5432`, usuário `postgres` |
 | Volume nomeado | `guardario-pgdata` | montado em `/var/lib/postgresql/data` |
+| Rede bridge entre os serviços | `guardario-net`, driver `bridge`; a API acha o banco pelo nome do serviço `db` | [`docker-compose.yml`](docker-compose.yml) | [18](docs/evidencias/18-rede-guardario-net.png) |
 
-A região é `northcentralus` porque a assinatura Azure da FIAP só permite cinco regiões, e em `brazilsouth` os tamanhos de VM que consultamos aparecem como `NotAvailableForSubscription`. O arquivo editável do diagrama é o [`docs/arquitetura.svg`](docs/arquitetura.svg).
+A VM é IaaS: a Azure entrega a máquina virtual, a rede e o disco, e nós cuidamos do sistema operacional, do Docker e da aplicação. A região e o tamanho foram escolhidos consultando o `az vm list-skus`, como na aula 08: a assinatura Azure da FIAP só permite cinco regiões, e em `brazilsouth` os tamanhos de VM que consultamos aparecem como `NotAvailableForSubscription`, enquanto em `northcentralus` o `Standard_B2als_v2` aparece sem restrição:
+
+```bash
+az vm list-skus --location northcentralus --resource-type virtualMachines --size Standard_B2 -o table
+```
+
+O arquivo editável do diagrama é o [`docs/arquitetura.svg`](docs/arquitetura.svg).
 
 ## O que tem neste repositório
 
@@ -99,23 +106,26 @@ Cada requisito das páginas 37 e 38 do enunciado, com o arquivo que o implementa
 
 | Requisito da entrega | Como foi atendido | Onde está | Print |
 |---|---|---|---|
-| VM no Azure por Azure CLI, com os comandos documentados | `az group create`, `az vm create`, `az vm open-port` | [`scripts/provisionar-vm.sh`](scripts/provisionar-vm.sh), [passo 1](#1-provisionar-a-vm-com-azure-cli) | [01](docs/evidencias/01-azure-cli-vm-e-nsg.png), [02](docs/evidencias/02-provisionar-vm-script.png) |
-| Docker e Docker Compose instalados na VM | repositório oficial do Docker no apt | [`scripts/instalar-docker.sh`](scripts/instalar-docker.sh), [passo 2](#2-instalar-o-docker-dentro-da-vm) | [03](docs/evidencias/03-ssh-docker-na-vm.png) |
-| Aplicação Java em container | Spring Boot 4, imagem própria em dois estágios | [`Dockerfile`](Dockerfile) | [04](docs/evidencias/04-dockerfile-linhas-chave.png), [06](docs/evidencias/06-containers-em-background.png) |
-| Usuário não privilegiado | `USER guardario` (uid 1001) na API e `user: postgres` (uid 70) no banco | [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml) | [09](docs/evidencias/09-exec-api-usuario-diretorios.png), [10](docs/evidencias/10-exec-db-usuario-dados.png) |
-| `WORKDIR` | `/workspace` no build e `/app` na execução | [`Dockerfile`](Dockerfile) | [04](docs/evidencias/04-dockerfile-linhas-chave.png), [09](docs/evidencias/09-exec-api-usuario-diretorios.png) |
-| Variável de ambiente | `ENV` no Dockerfile e `environment` no Compose, com os valores no `.env` | [Variáveis de ambiente](#variáveis-de-ambiente) | [11](docs/evidencias/11-variaveis-e-porta.png) |
-| Porta exposta | `EXPOSE 8080` e `ports: "8080:8080"` | [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml) | [06](docs/evidencias/06-containers-em-background.png), [11](docs/evidencias/11-variaveis-e-porta.png) |
-| Banco em container, com porta e variáveis | PostgreSQL 16, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, porta 5432 | [`docker-compose.yml`](docker-compose.yml) | [05](docs/evidencias/05-compose-linhas-chave.png), [11](docs/evidencias/11-variaveis-e-porta.png) |
-| Volume nomeado | `guardario-pgdata` em `/var/lib/postgresql/data` | [`docker-compose.yml`](docker-compose.yml) | [12](docs/evidencias/12-volume-nomeado.png) |
-| Persistência dos dados | `docker compose down` e `up -d` com os mesmos dados | [passo 6](#6-persistência-dos-dados) | [45](docs/evidencias/45-persistencia-1-antes.png) a [48](docs/evidencias/48-persistencia-4-depois.png) |
-| Duas tabelas relacionadas | `area_risco` 1:N `abrigo`, com a chave estrangeira `abrigo.area_id` | [passo 5](#5-select-direto-no-banco) | [14](docs/evidencias/14-select-tabelas-e-area-risco.png), [15](docs/evidencias/15-select-join-e-chave-estrangeira.png) |
-| CRUD completo | POST, GET, PUT e DELETE de área e de abrigo, cada um seguido do SELECT | [passo 4](#4-crud-pelo-ip-público-com-select-depois-de-cada-operação) | [17](docs/evidencias/17-crud-create-area-requisicao.png) a [42](docs/evidencias/42-crud-get-area-404.png) |
-| Compose com aplicação, banco, rede, volume, portas, variáveis e dependência | `depends_on` com `condition: service_healthy` | [`docker-compose.yml`](docker-compose.yml) | [05](docs/evidencias/05-compose-linhas-chave.png), [13](docs/evidencias/13-rede-guardario-net.png) |
-| Containers em background | `docker compose up -d` | [passo 3](#3-subir-os-containers-com-docker-compose) | [06](docs/evidencias/06-containers-em-background.png) |
-| Logs | `docker compose logs` da API e do banco | [Evidências](#logs) | [07](docs/evidencias/07-logs-api.png), [08](docs/evidencias/08-logs-db.png) |
-| Acesso aos containers, usuário e estrutura de diretórios | `docker exec` nos dois containers | [Evidências](#acesso-aos-containers-usuário-utilizado-e-estrutura-de-diretórios) | [09](docs/evidencias/09-exec-api-usuario-diretorios.png), [10](docs/evidencias/10-exec-db-usuario-dados.png) |
-| SELECT diretamente no banco | `psql` dentro do container `guardario-db` | [passo 5](#5-select-direto-no-banco) | [14](docs/evidencias/14-select-tabelas-e-area-risco.png), [15](docs/evidencias/15-select-join-e-chave-estrangeira.png) |
+| VM no Azure por Azure CLI, com os comandos documentados | `az group create`, `az vm create`, `az vm open-port`, `az vm auto-shutdown` | [`scripts/provisionar-vm.sh`](scripts/provisionar-vm.sh), [passo 1](#1-provisionar-a-vm-com-azure-cli) | [01](docs/evidencias/01-azure-cli-vm-e-nsg.png), [02](docs/evidencias/02-provisionar-vm-script.png), [03](docs/evidencias/03-provisionar-vm-script-porta-e-desligamento.png) |
+| Tags e desligamento automático da VM (aula 08) | tags `owner` e `purpose`; desligamento todo dia às 02:30 UTC (23:30 em Brasília) | [`scripts/provisionar-vm.sh`](scripts/provisionar-vm.sh) | [04](docs/evidencias/04-tags-e-auto-shutdown.png) |
+| Docker e Docker Compose instalados na VM | repositório oficial do Docker no apt | [`scripts/instalar-docker.sh`](scripts/instalar-docker.sh), [passo 2](#2-instalar-o-docker-dentro-da-vm) | [05](docs/evidencias/05-ssh-docker-na-vm.png) |
+| Aplicação Java em container | Spring Boot 4, imagem própria em dois estágios | [`Dockerfile`](Dockerfile) | [07](docs/evidencias/07-dockerfile-linhas-chave.png), [10](docs/evidencias/10-containers-em-background.png) |
+| Nenhuma senha nas camadas da imagem | sem `ARG` com segredo; senhas só no `.env`, lidas pelo Compose | [`Dockerfile`](Dockerfile), [`.dockerignore`](.dockerignore) | [08](docs/evidencias/08-docker-history-sem-segredo.png) |
+| Usuário não privilegiado | `USER guardario` (uid 1001) na API e `user: postgres` (uid 70) no banco | [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml) | [14](docs/evidencias/14-exec-api-usuario-diretorios.png), [15](docs/evidencias/15-exec-db-usuario-dados.png) |
+| `WORKDIR` | `/workspace` no build e `/app` na execução | [`Dockerfile`](Dockerfile) | [07](docs/evidencias/07-dockerfile-linhas-chave.png), [14](docs/evidencias/14-exec-api-usuario-diretorios.png) |
+| Variável de ambiente | `ENV` no Dockerfile e `environment` no Compose, com os valores no `.env` | [Variáveis de ambiente](#variáveis-de-ambiente) | [16](docs/evidencias/16-variaveis-e-porta.png) |
+| Porta exposta | `EXPOSE 8080` e `ports: "8080:8080"` | [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml) | [10](docs/evidencias/10-containers-em-background.png), [16](docs/evidencias/16-variaveis-e-porta.png) |
+| Banco em container, com porta e variáveis | PostgreSQL 16, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, porta 5432 | [`docker-compose.yml`](docker-compose.yml) | [09](docs/evidencias/09-compose-linhas-chave.png), [16](docs/evidencias/16-variaveis-e-porta.png) |
+| Volume nomeado | `guardario-pgdata` em `/var/lib/postgresql/data` | [`docker-compose.yml`](docker-compose.yml) | [17](docs/evidencias/17-volume-nomeado.png) |
+| Persistência dos dados | `docker compose down` e `up -d` com os mesmos dados | [passo 6](#6-persistência-dos-dados) | [49](docs/evidencias/49-persistencia-1-antes.png) a [52](docs/evidencias/52-persistencia-4-depois.png) |
+| Duas tabelas relacionadas | `area_risco` 1:N `abrigo`, com a chave estrangeira `abrigo.area_id` | [passo 5](#5-select-direto-no-banco) | [19](docs/evidencias/19-select-tabelas-e-area-risco.png), [20](docs/evidencias/20-select-join-e-chave-estrangeira.png) |
+| CRUD completo | POST, GET, PUT e DELETE de área e de abrigo, cada um seguido do SELECT | [passo 4](#4-crud-pelo-ip-público-com-select-depois-de-cada-operação) | [22](docs/evidencias/22-crud-create-area-requisicao.png) a [47](docs/evidencias/47-crud-get-area-404.png) |
+| Compose com aplicação, banco, rede, volume, portas, variáveis e dependência | `depends_on` com `condition: service_healthy` | [`docker-compose.yml`](docker-compose.yml) | [09](docs/evidencias/09-compose-linhas-chave.png), [18](docs/evidencias/18-rede-guardario-net.png) |
+| Containers em background | `docker compose up -d` | [passo 3](#3-subir-os-containers-com-docker-compose) | [10](docs/evidencias/10-containers-em-background.png) |
+| Processos de cada serviço | `docker compose top`: a API roda como uid 1001 e o banco como uid 70 | [Evidências](#containers-executando-em-background) | [11](docs/evidencias/11-compose-top.png) |
+| Logs | `docker compose logs` da API e do banco | [Evidências](#logs) | [12](docs/evidencias/12-logs-api.png), [13](docs/evidencias/13-logs-db.png) |
+| Acesso aos containers, usuário e estrutura de diretórios | `docker exec` nos dois containers | [Evidências](#acesso-aos-containers-usuário-utilizado-e-estrutura-de-diretórios) | [14](docs/evidencias/14-exec-api-usuario-diretorios.png), [15](docs/evidencias/15-exec-db-usuario-dados.png) |
+| SELECT diretamente no banco | `psql` dentro do container `guardario-db` | [passo 5](#5-select-direto-no-banco) | [19](docs/evidencias/19-select-tabelas-e-area-risco.png), [20](docs/evidencias/20-select-join-e-chave-estrangeira.png) |
 | Arquitetura macro | diagrama com os nomes reais dos recursos | [Arquitetura macro](#arquitetura-macro) | [`docs/arquitetura.png`](docs/arquitetura.png) |
 
 ## How To: do zero até o CRUD na nuvem
@@ -124,22 +134,26 @@ Você precisa de uma conta Azure (a Azure for Students serve) e da Azure CLI. Qu
 
 ### 1. Provisionar a VM com Azure CLI
 
-No seu computador ou no Cloud Shell:
+No seu computador ou no Cloud Shell, no fluxo de script da aula 08: dar permissão de execução, executar e guardar a saída num `.log`.
 
 ```bash
 git clone https://github.com/Raphael-Sinelli/guardario-devops.git
 cd guardario-devops
-./scripts/provisionar-vm.sh
+chmod +x scripts/*.sh
+./scripts/provisionar-vm.sh > provisionar-vm.log
+cat provisionar-vm.log
 ```
+
+Isso é Infraestrutura como Código: a VM, a rede, o firewall, as tags e o desligamento automático estão num arquivo versionado no Git, e rodar o mesmo script de novo recria o mesmo ambiente. O `.log` fica fora do Git (`*.log` está no `.gitignore`). Rode `az login` antes de executar o script, para o login não ficar misturado com a saída que vai para o arquivo.
 
 O script roda os comandos abaixo, nesta ordem. Dá para colar um por um, se preferir:
 
 ```bash
 az login
 
-# 1. grupo de recursos
+# 1. grupo de recursos, com as tags owner e purpose da aula 08
 az group create --name rg-guardario --location northcentralus \
-  --tags projeto=guardario disciplina=devops
+  --tags projeto=guardario disciplina=devops owner=GuardaRio purpose=GlobalSolution
 
 # 2. VM Ubuntu 24.04 com rede, sub-rede, NSG (porta 22 liberada) e IP público fixo
 az vm create \
@@ -153,12 +167,15 @@ az vm create \
   --subnet snet-guardario --subnet-address-prefix 10.0.0.0/24 \
   --nsg nsg-guardario --nsg-rule SSH \
   --public-ip-address pip-guardario --public-ip-sku Standard \
-  --tags projeto=guardario disciplina=devops
+  --tags projeto=guardario disciplina=devops owner=GuardaRio purpose=GlobalSolution
 
 # 3. porta da API no NSG
 az vm open-port --resource-group rg-guardario --name vm-guardario --port 8080 --priority 1010
 
-# 4. IP público da VM
+# 4. desligamento automático todo dia às 02:30 UTC, que é 23:30 em Brasília
+az vm auto-shutdown --resource-group rg-guardario --name vm-guardario --time 0230
+
+# 5. IP público da VM
 az vm show --show-details --resource-group rg-guardario --name vm-guardario \
   --query publicIps --output tsv
 ```
@@ -229,16 +246,16 @@ Antes de começar, no Swagger: `POST /api/auth/login` com o e-mail e a senha do 
 
 | # | Operação no Swagger | Resposta | SELECT no terminal | Prints |
 |---|---|---|---|---|
-| 1 | Create área: `POST /api/areas` com `{"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000}` | 201, com o `id` da área | SELECT de `area_risco`: a área nova aparece | [17](docs/evidencias/17-crud-create-area-requisicao.png), [18](docs/evidencias/18-crud-create-area-resposta.png), [19](docs/evidencias/19-crud-create-area-select.png) |
-| 2 | Create abrigo: `POST /api/abrigos` com `{"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"aceitaPets":true,"acessivelPcd":true,"areaId":ID-DA-AREA}` | 201, com o `id` do abrigo | SELECT com JOIN: o abrigo aparece ligado à área | [20](docs/evidencias/20-crud-create-abrigo-requisicao.png), [21](docs/evidencias/21-crud-create-abrigo-resposta.png), [22](docs/evidencias/22-crud-create-abrigo-select.png) |
-| 3 | Read área: `GET /api/areas/{id}` | 200 | SELECT de `area_risco` com `WHERE id = ID-DA-AREA`: os mesmos dados | [23](docs/evidencias/23-crud-read-area-resposta.png), [24](docs/evidencias/24-crud-read-area-select.png) |
-| 4 | Read abrigo: `GET /api/abrigos/{id}` | 200 | SELECT com JOIN e `WHERE a.id = ID-DO-ABRIGO`: os mesmos dados | [25](docs/evidencias/25-crud-read-abrigo-resposta.png), [26](docs/evidencias/26-crud-read-abrigo-select.png) |
-| 5 | Update área: `PUT /api/areas/{id}` com `"populacaoEstimada":52000` | 200 | SELECT de `area_risco`: população 52000 | [27](docs/evidencias/27-crud-update-area-requisicao.png), [28](docs/evidencias/28-crud-update-area-resposta.png), [29](docs/evidencias/29-crud-update-area-select.png) |
-| 6 | Update abrigo: `PUT /api/abrigos/{id}` com nome `EMEF Jardim Pantanal (ginásio)` e `"capacidade":150` | 200 | SELECT com JOIN: nome e capacidade novos | [30](docs/evidencias/30-crud-update-abrigo-requisicao.png), [31](docs/evidencias/31-crud-update-abrigo-resposta.png), [32](docs/evidencias/32-crud-update-abrigo-select.png) |
-| 7 | Delete da área que ainda tem abrigo: `DELETE /api/areas/{id}` | 409 | os dois SELECT: nada saiu do banco | [33](docs/evidencias/33-crud-delete-area-com-abrigo-requisicao.png), [34](docs/evidencias/34-crud-delete-area-com-abrigo-409.png), [35](docs/evidencias/35-crud-delete-area-com-abrigo-select.png) |
-| 8 | Delete abrigo: `DELETE /api/abrigos/{id}` | 204 | SELECT com JOIN: o abrigo sumiu | [36](docs/evidencias/36-crud-delete-abrigo-requisicao.png), [37](docs/evidencias/37-crud-delete-abrigo-204.png), [38](docs/evidencias/38-crud-delete-abrigo-select.png) |
-| 9 | Delete área: `DELETE /api/areas/{id}` | 204 | SELECT de `area_risco`: a área sumiu | [39](docs/evidencias/39-crud-delete-area-requisicao.png), [40](docs/evidencias/40-crud-delete-area-204.png), [41](docs/evidencias/41-crud-delete-area-select.png) |
-| 10 | Read da área apagada: `GET /api/areas/{id}` | 404 | não precisa | [42](docs/evidencias/42-crud-get-area-404.png) |
+| 1 | Create área: `POST /api/areas` com `{"nome":"Jardim Pantanal","cidade":"São Paulo","uf":"SP","populacaoEstimada":48000}` | 201, com o `id` da área | SELECT de `area_risco`: a área nova aparece | [22](docs/evidencias/22-crud-create-area-requisicao.png), [23](docs/evidencias/23-crud-create-area-resposta.png), [24](docs/evidencias/24-crud-create-area-select.png) |
+| 2 | Create abrigo: `POST /api/abrigos` com `{"nome":"EMEF Jardim Pantanal","endereco":"Rua Capachós, 120","capacidade":120,"aceitaPets":true,"acessivelPcd":true,"areaId":ID-DA-AREA}` | 201, com o `id` do abrigo | SELECT com JOIN: o abrigo aparece ligado à área | [25](docs/evidencias/25-crud-create-abrigo-requisicao.png), [26](docs/evidencias/26-crud-create-abrigo-resposta.png), [27](docs/evidencias/27-crud-create-abrigo-select.png) |
+| 3 | Read área: `GET /api/areas/{id}` | 200 | SELECT de `area_risco` com `WHERE id = ID-DA-AREA`: os mesmos dados | [28](docs/evidencias/28-crud-read-area-resposta.png), [29](docs/evidencias/29-crud-read-area-select.png) |
+| 4 | Read abrigo: `GET /api/abrigos/{id}` | 200 | SELECT com JOIN e `WHERE a.id = ID-DO-ABRIGO`: os mesmos dados | [30](docs/evidencias/30-crud-read-abrigo-resposta.png), [31](docs/evidencias/31-crud-read-abrigo-select.png) |
+| 5 | Update área: `PUT /api/areas/{id}` com `"populacaoEstimada":52000` | 200 | SELECT de `area_risco`: população 52000 | [32](docs/evidencias/32-crud-update-area-requisicao.png), [33](docs/evidencias/33-crud-update-area-resposta.png), [34](docs/evidencias/34-crud-update-area-select.png) |
+| 6 | Update abrigo: `PUT /api/abrigos/{id}` com nome `EMEF Jardim Pantanal (ginásio)` e `"capacidade":150` | 200 | SELECT com JOIN: nome e capacidade novos | [35](docs/evidencias/35-crud-update-abrigo-requisicao.png), [36](docs/evidencias/36-crud-update-abrigo-resposta.png), [37](docs/evidencias/37-crud-update-abrigo-select.png) |
+| 7 | Delete da área que ainda tem abrigo: `DELETE /api/areas/{id}` | 409 | os dois SELECT: nada saiu do banco | [38](docs/evidencias/38-crud-delete-area-com-abrigo-requisicao.png), [39](docs/evidencias/39-crud-delete-area-com-abrigo-409.png), [40](docs/evidencias/40-crud-delete-area-com-abrigo-select.png) |
+| 8 | Delete abrigo: `DELETE /api/abrigos/{id}` | 204 | SELECT com JOIN: o abrigo sumiu | [41](docs/evidencias/41-crud-delete-abrigo-requisicao.png), [42](docs/evidencias/42-crud-delete-abrigo-204.png), [43](docs/evidencias/43-crud-delete-abrigo-select.png) |
+| 9 | Delete área: `DELETE /api/areas/{id}` | 204 | SELECT de `area_risco`: a área sumiu | [44](docs/evidencias/44-crud-delete-area-requisicao.png), [45](docs/evidencias/45-crud-delete-area-204.png), [46](docs/evidencias/46-crud-delete-area-select.png) |
+| 10 | Read da área apagada: `GET /api/areas/{id}` | 404 | não precisa | [47](docs/evidencias/47-crud-get-area-404.png) |
 
 O 409 do passo 7 vem da regra da API que protege a chave estrangeira: uma área com abrigo ligado não pode ser apagada. Por isso o abrigo sai primeiro.
 
@@ -336,143 +353,159 @@ A VM `vm-guardario` está em `northcentralus`, tamanho `Standard_B2als_v2`, liga
 
 ![az vm list e az network nsg rule list](docs/evidencias/01-azure-cli-vm-e-nsg.png)
 
-O script de provisionamento, aberto na VM, com o `az group create` (linha 34), o `az vm create` (linha 43) e o `az vm open-port` (linha 62).
+O script de provisionamento, aberto na VM, com as tags (linha 30), o `az group create` (linha 39) e o `az vm create` (linha 48).
 
 ![scripts/provisionar-vm.sh](docs/evidencias/02-provisionar-vm-script.png)
+
+A continuação do mesmo script: o `az vm open-port` da 8080 (linha 67) e o `az vm auto-shutdown` (linha 76), que desliga a VM todo dia às 02:30 UTC, 23:30 em Brasília.
+
+![scripts/provisionar-vm.sh, porta e desligamento](docs/evidencias/03-provisionar-vm-script-porta-e-desligamento.png)
+
+As tags no formato da aula 08 (`owner` e `purpose`) e o desligamento automático aplicados na VM, e o agendamento confirmado: `Enabled`, `0230`, `UTC`.
+
+![tags e desligamento automático](docs/evidencias/04-tags-e-auto-shutdown.png)
 
 ### Docker e Docker Compose instalados na VM
 
 Acesso por SSH pelo IP público e as versões instaladas: Docker 29.10.0 e Docker Compose v5.7.1.
 
-![ssh e versões do Docker](docs/evidencias/03-ssh-docker-na-vm.png)
+![ssh e versões do Docker](docs/evidencias/05-ssh-docker-na-vm.png)
 
 ### Dockerfile e container da aplicação
 
 As linhas-chave do Dockerfile, lidas na VM: os dois `FROM` (build com JDK e execução com JRE Alpine), `WORKDIR /app`, `adduser` e `USER guardario`, `ENV`, `EXPOSE 8080`, `HEALTHCHECK` e `ENTRYPOINT`.
 
-![linhas-chave do Dockerfile](docs/evidencias/04-dockerfile-linhas-chave.png)
+![linhas-chave do Dockerfile](docs/evidencias/07-dockerfile-linhas-chave.png)
+
+O `docker history` da imagem: 21 camadas, nenhuma com senha, segredo ou token, e nenhum `ARG` (a aula 10 avisa que segredo em `ARG` aparece aqui). As senhas chegam só em tempo de execução, pelo `.env`.
+
+![docker history sem segredo](docs/evidencias/08-docker-history-sem-segredo.png)
 
 ### Docker Compose
 
 As linhas-chave do `docker-compose.yml`: serviços `db` e `api`, imagens, usuário `postgres`, portas, volume `pgdata` (nome `guardario-pgdata`), rede `guardario-net`, `restart: unless-stopped` e a dependência com `condition: service_healthy`.
 
-![linhas-chave do docker-compose.yml](docs/evidencias/05-compose-linhas-chave.png)
+![linhas-chave do docker-compose.yml](docs/evidencias/09-compose-linhas-chave.png)
 
 ### Containers executando em background
 
 Os dois containers `Up (healthy)`, com a coluna PORTS: a API publicada em `0.0.0.0:8080` e o banco só em `127.0.0.1:5432`.
 
-![docker compose ps](docs/evidencias/06-containers-em-background.png)
+![docker compose ps](docs/evidencias/10-containers-em-background.png)
+
+O `docker compose top`, que lista os processos de cada serviço do arquivo: o serviço `api` roda como uid 1001 (`guardario`) e o serviço `db` como uid 70 (`postgres`), com as conexões da API abertas no banco.
+
+![docker compose top](docs/evidencias/11-compose-top.png)
 
 ### Logs
 
 Logs da API: conexão em `jdbc:postgresql://db:5432/guardario`, PostgreSQL 16.16, Tomcat na porta 8080 e `Started GuardaRioApplication`. Aparecem duas subidas porque a VM foi desligada e religada entre elas.
 
-![logs da API](docs/evidencias/07-logs-api.png)
+![logs da API](docs/evidencias/12-logs-api.png)
 
 Logs do banco: `database system is ready to accept connections`.
 
-![logs do banco](docs/evidencias/08-logs-db.png)
+![logs do banco](docs/evidencias/13-logs-db.png)
 
 ### Acesso aos containers, usuário utilizado e estrutura de diretórios
 
 Container da API: o usuário é `guardario` (uid 1001), não root. O diretório de trabalho é `/app`, só com o `app.jar`, que pertence ao root. O processo 1 é o `java -jar app.jar`, rodando como `guardario`.
 
-![docker exec na API](docs/evidencias/09-exec-api-usuario-diretorios.png)
+![docker exec na API](docs/evidencias/14-exec-api-usuario-diretorios.png)
 
 Container do banco: o usuário é `postgres` (uid 70), e o diretório dos dados é `/var/lib/postgresql/data`, onde o volume está montado.
 
-![docker exec no banco](docs/evidencias/10-exec-db-usuario-dados.png)
+![docker exec no banco](docs/evidencias/15-exec-db-usuario-dados.png)
 
 ### Variáveis de ambiente e portas
 
 As variáveis dos dois containers, filtradas para não mostrar senha nem chave, e as portas publicadas.
 
-![variáveis e portas](docs/evidencias/11-variaveis-e-porta.png)
+![variáveis e portas](docs/evidencias/16-variaveis-e-porta.png)
 
 ### Volume nomeado e rede
 
 O volume `guardario-pgdata`, criado pelo Compose, com o ponto de montagem em `/var/lib/docker/volumes/guardario-pgdata/_data`.
 
-![volume nomeado](docs/evidencias/12-volume-nomeado.png)
+![volume nomeado](docs/evidencias/17-volume-nomeado.png)
 
-A rede `guardario-net` com os dois containers. De dentro da API, o nome `db` resolve para o IP do banco e a porta 5432 responde.
+A rede `guardario-net`, do tipo bridge, com os dois containers. De dentro da API, o nome `db` resolve para o IP do banco e a porta 5432 responde.
 
-![rede guardario-net](docs/evidencias/13-rede-guardario-net.png)
+![rede guardario-net](docs/evidencias/18-rede-guardario-net.png)
 
 ### SELECT diretamente no banco
 
 As 8 tabelas e o SELECT de `area_risco`.
 
-![\dt e SELECT de area_risco](docs/evidencias/14-select-tabelas-e-area-risco.png)
+![\dt e SELECT de area_risco](docs/evidencias/19-select-tabelas-e-area-risco.png)
 
 O SELECT com JOIN entre `abrigo` e `area_risco` e a chave estrangeira `area_id` referenciando `area_risco(id)`.
 
-![JOIN e chave estrangeira](docs/evidencias/15-select-join-e-chave-estrangeira.png)
+![JOIN e chave estrangeira](docs/evidencias/20-select-join-e-chave-estrangeira.png)
 
 ### CRUD funcionando pelo IP público, com SELECT depois de cada operação
 
 O Swagger aberto pelo IP público, já autorizado como ADMIN (cadeados fechados). O login foi feito antes do print, para o token não aparecer.
 
-![Swagger pelo IP público](docs/evidencias/16-swagger-ip-publico.png)
+![Swagger pelo IP público](docs/evidencias/21-swagger-ip-publico.png)
 
 Em cada operação: um print da requisição antes do Execute, um da resposta (Request URL e código HTTP) e um do SELECT no banco. O print da resposta começa no Request URL: o bloco Curl, que fica acima dele, mostraria o token.
 
 **1. Create área (201) e SELECT.** A área 6 aparece no banco com população 48000.
 
-![Create área, requisição](docs/evidencias/17-crud-create-area-requisicao.png)
-![Create área, resposta 201](docs/evidencias/18-crud-create-area-resposta.png)
-![Create área, SELECT](docs/evidencias/19-crud-create-area-select.png)
+![Create área, requisição](docs/evidencias/22-crud-create-area-requisicao.png)
+![Create área, resposta 201](docs/evidencias/23-crud-create-area-resposta.png)
+![Create área, SELECT](docs/evidencias/24-crud-create-area-select.png)
 
 **2. Create abrigo (201) e SELECT com JOIN.** O abrigo 6 aparece ligado à área 6.
 
-![Create abrigo, requisição](docs/evidencias/20-crud-create-abrigo-requisicao.png)
-![Create abrigo, resposta 201](docs/evidencias/21-crud-create-abrigo-resposta.png)
-![Create abrigo, SELECT](docs/evidencias/22-crud-create-abrigo-select.png)
+![Create abrigo, requisição](docs/evidencias/25-crud-create-abrigo-requisicao.png)
+![Create abrigo, resposta 201](docs/evidencias/26-crud-create-abrigo-resposta.png)
+![Create abrigo, SELECT](docs/evidencias/27-crud-create-abrigo-select.png)
 
 **3. Read área (200) e SELECT.** A API e o banco mostram os mesmos dados da área 6.
 
-![Read área, resposta 200](docs/evidencias/23-crud-read-area-resposta.png)
-![Read área, SELECT](docs/evidencias/24-crud-read-area-select.png)
+![Read área, resposta 200](docs/evidencias/28-crud-read-area-resposta.png)
+![Read área, SELECT](docs/evidencias/29-crud-read-area-select.png)
 
 **4. Read abrigo (200) e SELECT.** A API e o banco mostram os mesmos dados do abrigo 6.
 
-![Read abrigo, resposta 200](docs/evidencias/25-crud-read-abrigo-resposta.png)
-![Read abrigo, SELECT](docs/evidencias/26-crud-read-abrigo-select.png)
+![Read abrigo, resposta 200](docs/evidencias/30-crud-read-abrigo-resposta.png)
+![Read abrigo, SELECT](docs/evidencias/31-crud-read-abrigo-select.png)
 
 **5. Update área (200) e SELECT.** A população da área 6 passa de 48000 para 52000.
 
-![Update área, requisição](docs/evidencias/27-crud-update-area-requisicao.png)
-![Update área, resposta 200](docs/evidencias/28-crud-update-area-resposta.png)
-![Update área, SELECT](docs/evidencias/29-crud-update-area-select.png)
+![Update área, requisição](docs/evidencias/32-crud-update-area-requisicao.png)
+![Update área, resposta 200](docs/evidencias/33-crud-update-area-resposta.png)
+![Update área, SELECT](docs/evidencias/34-crud-update-area-select.png)
 
 **6. Update abrigo (200) e SELECT.** O abrigo 6 passa a se chamar EMEF Jardim Pantanal (ginásio), com capacidade 150.
 
-![Update abrigo, requisição](docs/evidencias/30-crud-update-abrigo-requisicao.png)
-![Update abrigo, resposta 200](docs/evidencias/31-crud-update-abrigo-resposta.png)
-![Update abrigo, SELECT](docs/evidencias/32-crud-update-abrigo-select.png)
+![Update abrigo, requisição](docs/evidencias/35-crud-update-abrigo-requisicao.png)
+![Update abrigo, resposta 200](docs/evidencias/36-crud-update-abrigo-resposta.png)
+![Update abrigo, SELECT](docs/evidencias/37-crud-update-abrigo-select.png)
 
 **7. Delete da área com abrigo ligado (409) e SELECT.** A API recusa, e o SELECT mostra que nada saiu das duas tabelas.
 
-![Delete área com abrigo, requisição](docs/evidencias/33-crud-delete-area-com-abrigo-requisicao.png)
-![Delete área com abrigo, resposta 409](docs/evidencias/34-crud-delete-area-com-abrigo-409.png)
-![Delete área com abrigo, SELECT](docs/evidencias/35-crud-delete-area-com-abrigo-select.png)
+![Delete área com abrigo, requisição](docs/evidencias/38-crud-delete-area-com-abrigo-requisicao.png)
+![Delete área com abrigo, resposta 409](docs/evidencias/39-crud-delete-area-com-abrigo-409.png)
+![Delete área com abrigo, SELECT](docs/evidencias/40-crud-delete-area-com-abrigo-select.png)
 
 **8. Delete abrigo (204) e SELECT.** O abrigo 6 sai do banco.
 
-![Delete abrigo, requisição](docs/evidencias/36-crud-delete-abrigo-requisicao.png)
-![Delete abrigo, resposta 204](docs/evidencias/37-crud-delete-abrigo-204.png)
-![Delete abrigo, SELECT](docs/evidencias/38-crud-delete-abrigo-select.png)
+![Delete abrigo, requisição](docs/evidencias/41-crud-delete-abrigo-requisicao.png)
+![Delete abrigo, resposta 204](docs/evidencias/42-crud-delete-abrigo-204.png)
+![Delete abrigo, SELECT](docs/evidencias/43-crud-delete-abrigo-select.png)
 
 **9. Delete área (204) e SELECT.** A área 6 sai do banco.
 
-![Delete área, requisição](docs/evidencias/39-crud-delete-area-requisicao.png)
-![Delete área, resposta 204](docs/evidencias/40-crud-delete-area-204.png)
-![Delete área, SELECT](docs/evidencias/41-crud-delete-area-select.png)
+![Delete área, requisição](docs/evidencias/44-crud-delete-area-requisicao.png)
+![Delete área, resposta 204](docs/evidencias/45-crud-delete-area-204.png)
+![Delete área, SELECT](docs/evidencias/46-crud-delete-area-select.png)
 
 **10. Read da área apagada (404).**
 
-![GET da área apagada, 404](docs/evidencias/42-crud-get-area-404.png)
+![GET da área apagada, 404](docs/evidencias/47-crud-get-area-404.png)
 
 Os registros de id 2 que aparecem nos SELECT são de um teste anterior e ficaram no banco de propósito.
 
@@ -480,56 +513,56 @@ Os registros de id 2 que aparecem nos SELECT são de um teste anterior e ficaram
 
 Um CRUD com `--manter` deixa a área 9 e o abrigo 9 no banco.
 
-![registros de teste](docs/evidencias/44-persistencia-0-registros-de-teste.png)
+![registros de teste](docs/evidencias/48-persistencia-0-registros-de-teste.png)
 
 Os dados antes de derrubar os containers.
 
-![antes do down](docs/evidencias/45-persistencia-1-antes.png)
+![antes do down](docs/evidencias/49-persistencia-1-antes.png)
 
 `docker compose down`: os dois containers e a rede são removidos, o `docker ps -a` fica vazio e o volume `guardario-pgdata` continua no `docker volume ls`.
 
-![docker compose down](docs/evidencias/46-persistencia-2-down.png)
+![docker compose down](docs/evidencias/50-persistencia-2-down.png)
 
 `docker compose up -d`: rede e containers novos, os dois `healthy`, com o mesmo volume.
 
-![docker compose up -d](docs/evidencias/47-persistencia-3-up.png)
+![docker compose up -d](docs/evidencias/51-persistencia-3-up.png)
 
 Os mesmos dados, lidos pelos containers novos.
 
-![depois do up](docs/evidencias/48-persistencia-4-depois.png)
+![depois do up](docs/evidencias/52-persistencia-4-depois.png)
 
 ### CRUD pelo script testar-crud.sh
 
 O resumo: uma linha por chamada HTTP, com o status recebido e o esperado.
 
-![testar-crud.sh, resumo](docs/evidencias/49-testar-crud-resumo.png)
+![testar-crud.sh, resumo](docs/evidencias/53-testar-crud-resumo.png)
 
 A saída completa de outra execução, gravada num arquivo na VM e mostrada em quatro telas, com o corpo enviado, a resposta e o SELECT depois de cada operação.
 
-![testar-crud.sh, saída completa 1](docs/evidencias/50-testar-crud-completo-1.png)
-![testar-crud.sh, saída completa 2](docs/evidencias/50-testar-crud-completo-2.png)
-![testar-crud.sh, saída completa 3](docs/evidencias/50-testar-crud-completo-3.png)
-![testar-crud.sh, saída completa 4](docs/evidencias/50-testar-crud-completo-4.png)
+![testar-crud.sh, saída completa 1](docs/evidencias/54-testar-crud-completo-1.png)
+![testar-crud.sh, saída completa 2](docs/evidencias/55-testar-crud-completo-2.png)
+![testar-crud.sh, saída completa 3](docs/evidencias/56-testar-crud-completo-3.png)
+![testar-crud.sh, saída completa 4](docs/evidencias/57-testar-crud-completo-4.png)
 
 ### Scripts do repositório
 
 Os seis scripts na VM, com a primeira linha de cada um, que diz o que ele faz.
 
-![scripts do repositório](docs/evidencias/51-scripts-do-repositorio.png)
+![scripts do repositório](docs/evidencias/06-scripts-do-repositorio.png)
 
 ### Ciclo da VM: desligar e religar
 
 `az vm deallocate`: a VM fica `VM deallocated` e a API para de responder (health 000).
 
-![deallocate](docs/evidencias/52-ciclo-vm-1-deallocate.png)
+![deallocate](docs/evidencias/58-ciclo-vm-1-deallocate.png)
 
 `az vm start`: a VM volta com o mesmo IP `130.131.61.173` e a API responde `UP`, sem ninguém entrar na VM.
 
-![start com o mesmo IP](docs/evidencias/53-ciclo-vm-2-start-mesmo-ip.png)
+![start com o mesmo IP](docs/evidencias/59-ciclo-vm-2-start-mesmo-ip.png)
 
 Dentro da VM: os dois containers voltaram `healthy` sozinhos e o abrigo 9 continua no banco.
 
-![containers e dados depois do start](docs/evidencias/54-ciclo-vm-3-containers-e-dados.png)
+![containers e dados depois do start](docs/evidencias/60-ciclo-vm-3-containers-e-dados.png)
 
 ### Saídas completas em texto
 
@@ -584,6 +617,10 @@ O [`docker-compose.yml`](docker-compose.yml) define tudo num arquivo só:
 
 **Por que a porta do banco só no loopback.** A API não precisa dela, porque fala com o banco pela rede interna. A porta fica publicada em `127.0.0.1` para dar acesso por túnel SSH a quem administra (`ssh -L 5432:127.0.0.1:5432 azureuser@IP-PUBLICO` e depois DBeaver ou psql em `localhost:5432`), sem expor o banco na internet. O NSG também não libera a 5432.
 
+**Por que o volume e a rede não têm o prefixo do projeto.** Sem a chave `name:`, o Compose põe o nome do projeto na frente dos recursos, como o `moneyhub_mysql-dimdim-data` e o `moneyhub_dimdim-network` da aula 11; aqui eles seriam `guardario_pgdata` e `guardario_guardario-net`. Com `name: guardario-pgdata` e `name: guardario-net` no arquivo, os nomes ficam fixos e os comandos de `inspect` do README funcionam em qualquer pasta.
+
+**Por que `environment` e não `env_file`.** O Compose lê o `.env` da pasta sozinho para preencher os `${...}` do arquivo. Cada serviço recebe no `environment` só as variáveis de que precisa: o banco não recebe a `JWT_SECRET`, por exemplo. Com `env_file`, todas as linhas do `.env` iriam para o serviço.
+
 ## Variáveis de ambiente
 
 Os valores ficam no `.env`, que não vai para o Git. O modelo é o [`.env.example`](.env.example).
@@ -618,7 +655,7 @@ docker compose down
 
 ### Desligar e religar a VM
 
-A VM fica desligada fora das demonstrações, para não gastar crédito. Do computador ou do Cloud Shell:
+A VM fica desligada fora das demonstrações, para não gastar crédito. Além disso, o desligamento automático (`az vm auto-shutdown`, no passo 1) desliga a VM todo dia às 02:30 UTC, 23:30 em Brasília, se alguém esquecer ela ligada. Para ligar e desligar na mão, do computador ou do Cloud Shell:
 
 ```bash
 # desligar: libera a máquina e para a cobrança de computação (o disco e o IP continuam reservados)
