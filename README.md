@@ -547,7 +547,7 @@ A saída completa de outra execução, gravada num arquivo na VM e mostrada em q
 
 ### Scripts do repositório
 
-Os sete scripts na VM, com a primeira linha de cada um, que diz o que ele faz. O `demo-video.sh` é o roteiro de demonstração usado no vídeo: na VM, `./scripts/demo-video.sh` digita cada comando na tela, executa esse mesmo comando ao vivo e mostra cena por cena os containers, os logs, o acesso, as variáveis, o volume, a rede, o SELECT, o CRUD pelo IP público com SELECT depois de cada operação e a persistência, e apaga sozinho os registros de teste no fim. `./scripts/demo-video.sh --cena 14` começa direto numa cena; `--rapido` e `--lento` mudam a velocidade da digitação.
+Os sete scripts na VM, com a primeira linha de cada um, que diz o que ele faz. O `demo-video.sh` é o roteiro de demonstração usado no vídeo: na VM, `./scripts/demo-video.sh` digita cada comando na tela, executa esse mesmo comando ao vivo e mostra cena por cena os containers, os logs, o acesso, as variáveis, o volume, a rede, o SELECT, o CRUD pelo IP público com SELECT depois de cada operação e a persistência, e apaga sozinho os registros de teste no fim. `./scripts/demo-video.sh --cena 14` começa direto numa cena; `--rapido` e `--lento` mudam a velocidade da digitação. Com `--corrido`, roda todas as cenas em sequência, sem Enter e sem limpar a tela: cada etapa abre com uma faixa com o título, a data, a hora e o nome da máquina, ocupa uma tela, e no fim vem a faixa PROVA AO VIVO com o `docker compose ps`, o health e um GET pelo IP público.
 
 ![scripts do repositório](docs/evidencias/06-scripts-do-repositorio.png)
 
