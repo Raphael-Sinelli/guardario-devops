@@ -94,7 +94,7 @@ guardario-devops/
 │   ├── gerar-env.sh         cria o .env com senhas e chave JWT aleatórias
 │   ├── testar-crud.sh       CRUD completo em duas tabelas relacionadas, pelo IP público
 │   ├── evidencias.sh        containers, logs, exec, SELECT, volume, rede e persistência
-│   ├── demo-video.sh        roteiro de demonstração do vídeo: digita e executa cada comando, Enter entre as etapas
+│   ├── demo-video.sh        roteiro de demonstração do vídeo: etapa por etapa com Enter, ou tudo de uma vez com --corrido
 │   └── remover-recursos.sh  apaga o grupo de recursos depois da apresentação
 └── docs/
     ├── arquitetura.png      arquitetura macro (e o .svg editável)
@@ -430,7 +430,7 @@ O volume `guardario-pgdata`, criado pelo Compose, com o ponto de montagem em `/v
 
 ![volume nomeado](docs/evidencias/17-volume-nomeado.png)
 
-A rede `guardario-net`, do tipo bridge, com os dois containers. De dentro da API, o nome `db` resolve para o IP do banco e a porta 5432 responde.
+A rede `guardario-net`, do tipo bridge, com os dois containers. De dentro da API, o nome `db` resolve para o IP do banco e a porta 5432 responde. Os IPs internos (`172.18.0.x`) são distribuídos pelo Docker de novo cada vez que os containers são recriados, e por isso a API usa o nome do serviço, não um IP.
 
 ![rede guardario-net](docs/evidencias/18-rede-guardario-net.png)
 
