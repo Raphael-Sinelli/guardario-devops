@@ -7,6 +7,9 @@
 # depois de cada operação e persistência.
 # Em cada etapa: limpa a tela e mostra o título; no Enter, digita o comando letra por
 # letra e executa esse mesmo comando, ao vivo; no Enter seguinte, vai para a próxima etapa.
+# No modo --corrido roda tudo de uma vez, sem Enter e sem limpar a tela: cada etapa abre
+# com uma faixa (título, data e hora, máquina) e ocupa exatamente uma tela, para depois
+# rolar o terminal de cena em cena.
 #
 # Onde rodar: na VM, na raiz do repositório, com os containers no ar.
 # Uso:
@@ -14,6 +17,9 @@
 #   ./scripts/demo-video.sh --cena 14     começa na cena 14 (para regravar um trecho)
 #   ./scripts/demo-video.sh --rapido      digitação rápida, para ensaio
 #   ./scripts/demo-video.sh --lento       digitação lenta, para explicar com calma
+#   ./scripts/demo-video.sh --corrido     tudo em sequência, no histórico do terminal,
+#                                         terminando com a faixa PROVA AO VIVO
+#   ./scripts/demo-video.sh --corrido --sem-prova   o mesmo, sem a prova ao vivo no fim
 #
 # Segurança: o token do ADMIN é obtido em silêncio a partir do .env e fica na variável
 # TOKEN; os comandos mostram $TOKEN, nunca o valor. Os registros criados no CRUD e na
@@ -28,6 +34,8 @@ PRIMEIRA=4
 ULTIMA=15
 INICIO="$PRIMEIRA"
 CPS=30   # caracteres por segundo da digitação
+CORRIDO=0
+PROVA=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,6 +47,8 @@ while [ $# -gt 0 ]; do
       fi;;
     --rapido) CPS=80;;
     --lento)  CPS=20;;
+    --corrido) CORRIDO=1;;
+    --sem-prova) PROVA=0;;
     *) echo "Opção desconhecida: $1"; echo "Uso: ./scripts/demo-video.sh [--cena N] [--rapido|--lento]"; exit 1;;
   esac
   shift
@@ -46,7 +56,7 @@ done
 
 # ----- cores para fundo escuro -----
 TIT=$'\e[1;97;44m'; CMD=$'\e[1;33m'; PROMPT=$'\e[1;32m'; OK=$'\e[1;32m'; ERRO=$'\e[1;97;41m'
-ENTER=$'\e[0;36m'; NOTA=$'\e[0;37m'; FIM=$'\e[0m'
+ENTER=$'\e[0;36m'; NOTA=$'\e[0;37m'; FIM=$'\e[0m'; BARRA=$'\e[1;94m'; NEG=$'\e[1;97m'
 
 do_env() { [ -f .env ] && grep -E "^$1=" .env | head -n1 | cut -d= -f2- || true; }
 POSTGRES_USER="$(do_env POSTGRES_USER)"; POSTGRES_USER="${POSTGRES_USER:-guardario}"
@@ -61,6 +71,37 @@ TMP="$(mktemp -d)"
 TOKEN=""
 exec {SONO}<> <(:)   # descritor vazio: o read -t nele serve de pausa curta sem abrir processo
 
+# ----- modo corrido: cada etapa vira um bloco do tamanho exato de uma tela -----
+LINHAS_TELA="$(tput lines 2>/dev/null || echo 35)"
+COLS_TELA="$(tput cols 2>/dev/null || echo 135)"
+BLOCO=0
+exec {TELA}>&1 {TELA_ERR}>&2   # guarda a saída original do terminal
+abrir_bloco() { exec >"$TMP/bloco" 2>&1; BLOCO=1; }
+linhas_do_bloco() {  # linhas que o bloco ocupa na tela, contando as quebras de linha longas
+  local LC_ALL=C.UTF-8 n=0 l w
+  while IFS= read -r l || [ -n "$l" ]; do
+    w=${#l}
+    n=$(( n + (w == 0 ? 1 : (w + COLS_TELA - 1) / COLS_TELA) ))
+  done < <(sed 's/\x1b\[[0-9;]*[A-Za-z]//g' "$TMP/bloco")
+  echo "$n"
+}
+fechar_bloco() {  # devolve a saída ao terminal, mostra o bloco e completa a tela com linhas em branco
+  [ "$BLOCO" = 1 ] || return 0
+  exec 1>&"$TELA" 2>&"$TELA_ERR"; BLOCO=0
+  local n; n="$(linhas_do_bloco)"
+  [ -n "${DEMO_LOG:-}" ] && printf '%s %s\n' "$n" "$(sed -n 3p "$TMP/bloco" | sed 's/\x1b\[[0-9;]*m//g')" >> "$DEMO_LOG"
+  cat "$TMP/bloco"
+  while [ "$n" -lt "$LINHAS_TELA" ]; do echo; n=$((n + 1)); done
+}
+faixa() {  # faixa fácil de achar rolando: barra, título, data e hora, máquina, barra
+  local largura=$(( COLS_TELA < 120 ? COLS_TELA : 120 )) barra
+  barra="$(printf '%*s' "$largura" '' | tr ' ' '=')"
+  printf '\n%s%s%s\n' "$BARRA" "$barra" "$FIM"
+  printf '%s  %s  %s\n' "$TIT" "$1" "$FIM"
+  printf '%s  %s · máquina: %s%s\n' "$NEG" "$(date '+%d/%m/%Y %H:%M:%S %Z')" "$(hostname)" "$FIM"
+  printf '%s%s%s\n' "$BARRA" "$barra" "$FIM"
+}
+
 # ----- apresentação -----
 esperar_enter() {  # descarta Enter apertado antes da hora e espera um Enter novo
   while read -r -t 0.05 _ </dev/tty; do :; done
@@ -68,6 +109,11 @@ esperar_enter() {  # descarta Enter apertado antes da hora e espera um Enter nov
   read -rs _ </dev/tty
 }
 titulo() {  # titulo "6" "Dockerfile": limpa a tela, mostra a faixa e espera o Enter que dispara a digitação
+  if [ "$CORRIDO" = 1 ]; then
+    fechar_bloco; abrir_bloco
+    if [ "$1" = "FIM" ]; then faixa "FIM · $2"; else faixa "CENA $1 · $2"; fi
+    return 0
+  fi
   clear
   local texto="  CENA $1 · $2  "
   [ "$1" = "FIM" ] && texto="  FIM · $2  "
@@ -77,6 +123,7 @@ titulo() {  # titulo "6" "Dockerfile": limpa a tela, mostra a faixa e espera o E
 }
 digitar() {  # escreve o comando letra por letra; comando longo sai três vezes mais rápido
   local s="$1" cps="$CPS" i ms
+  if [ "$CORRIDO" = 1 ]; then printf '%s$ %s%s%s\n' "$PROMPT" "$CMD" "$s" "$FIM"; return 0; fi
   [ "${#s}" -gt 70 ] && cps=$((CPS * 3))
   printf '%s$ %s' "$PROMPT" "$CMD"
   for ((i = 0; i < ${#s}; i++)); do
@@ -91,7 +138,7 @@ rodar() {  # digita o comando e executa exatamente esse texto
   eval "$1"
 }
 nota() { printf '%s%s%s\n' "$NOTA" "$1" "$FIM"; }
-pausa() { esperar_enter "próxima etapa"; printf '\n'; }
+pausa() { [ "$CORRIDO" = 1 ] && return 0; esperar_enter "próxima etapa"; printf '\n'; }
 
 # ----- limpeza e erro -----
 apagar_registros() {
@@ -114,10 +161,12 @@ apagar_registros() {
 sair() {
   # a limpeza não pode ser interrompida por um segundo sinal nem pelo trap de erro
   trap '' HUP TERM INT; trap - ERR
+  fechar_bloco
   stty echo </dev/tty 2>/dev/null || true
   apagar_registros; rm -rf "$TMP"
 }
 falhou() {
+  fechar_bloco
   printf '\n%s ERRO na linha %s: a etapa não terminou como esperado. %s\n' "$ERRO" "$1" "$FIM"
   printf '%sOs registros de teste criados por este script foram apagados. Corrija e rode de novo com --cena.%s\n' "$NOTA" "$FIM"
   exit 1
@@ -326,7 +375,7 @@ cena15() {
   AREA="$(id_da_resposta)"
   chamar POST /api/abrigos 201 "{\"nome\":\"Ginásio Vila Itaim\",\"endereco\":\"Rua Ererê, 50\",\"capacidade\":80,\"aceitaPets\":true,\"acessivelPcd\":true,\"areaId\":$AREA}"
   ABRIGO="$(id_da_resposta)"
-  select_join; pausa
+  rodar "$PSQL \"$SQL_JOIN\""; pausa
 
   titulo "15.2" "Persistência · docker compose down"
   rodar "docker compose --progress plain down"
@@ -360,3 +409,15 @@ for n in $(seq "$INICIO" "$ULTIMA"); do
 done
 titulo "FIM" "Registros de teste apagados: o banco voltou ao estado do começo"
 rodar "$PSQL \"$SQL_JOIN\""
+
+# no modo corrido, a prova de que está no ar agora, sempre depois das cenas
+if [ "$CORRIDO" = 1 ] && [ "$PROVA" = 1 ]; then
+  fechar_bloco; abrir_bloco
+  faixa "PROVA AO VIVO · a solução no ar neste momento"
+  rodar "docker compose ps --format 'table {{.Name}}\t{{.Status}}\t{{.Ports}}'"
+  echo
+  rodar "curl -s -w '\\nHTTP %{http_code}\\n' $API/actuator/health"
+  echo
+  rodar "curl -s -w '\\nHTTP %{http_code}\\n' $API/api/areas"
+fi
+fechar_bloco
