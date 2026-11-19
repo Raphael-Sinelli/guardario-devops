@@ -7,7 +7,7 @@ Este repositório coloca a solução GuardaRio na nuvem. A **API Java (Spring Bo
 | | |
 |---|---|
 | Aplicação na VM Azure | http://130.131.61.173:8080/swagger-ui/index.html (depois do vídeo a VM fica desligada, para poupar crédito; para ver ao vivo, peça a um integrante, que religa em cerca de 2 minutos no mesmo IP: veja [Desligar e religar a VM](#desligar-e-religar-a-vm)) |
-| Vídeo da demonstração | **A PREENCHER** (link do YouTube, não listado) |
+| Vídeo da demonstração | [https://www.youtube.com/watch?v=AB3tNsiyhWI](https://www.youtube.com/watch?v=AB3tNsiyhWI) (YouTube, não listado) |
 | Código da API | pasta [`api/`](api/), a mesma API da entrega de Java Advanced ([guardario-api](https://github.com/Raphael-Sinelli/guardario-api)) |
 
 ## Integrantes
