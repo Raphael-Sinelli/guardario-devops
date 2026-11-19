@@ -699,7 +699,3 @@ Para apagar tudo depois da apresentação: `./scripts/remover-recursos.sh`.
 | A API reinicia sem parar | o motivo está em `docker compose logs api`. Confira primeiro o `.env`: a `JWT_SECRET` precisa de 32 caracteres ou mais e a `ADMIN_PASSWORD`, de 8 |
 | Login do ADMIN dá 401 depois de trocar `ADMIN_PASSWORD` no `.env` | o ADMIN é criado só uma vez, na primeira subida. A senha que vale é a daquela subida |
 | O `psql \d` trava no terminal | o `psql` abriu um paginador. Use `-P pager=off` |
-
-## Uso de IA generativa
-
-Este projeto usou o Claude (Anthropic) como apoio para organizar a infraestrutura, escrever e revisar os scripts, o Dockerfile, o Compose e este README. Todo o conteúdo foi revisado, executado na VM e é explicado pelos integrantes do grupo. As decisões de arquitetura e os testes foram validados pela equipe.
